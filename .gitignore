@@ -1,0 +1,10 @@
+node_modules
+.next
+out
+.env*
+!.env.example
+public/sw.js
+public/sw.js.map
+*.tsbuildinfo
+.vercel
+coverage
