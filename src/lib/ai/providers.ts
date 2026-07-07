@@ -83,8 +83,9 @@ export async function generateWithOpenRouter(
     throw new Error("OPENROUTER_API_KEY not set");
   }
 
-  // Explicit list (e.g. the student's chosen model), else the app's
-  // OPENROUTER_MODELS / OPENROUTER_MODEL configuration.
+  // Models always come from the server's OPENROUTER_MODELS / OPENROUTER_MODEL
+  // configuration — students never choose one. Each model is tried in order;
+  // any failure (429, timeout, unavailable…) falls through to the next.
   const models = opts?.models?.length ? opts.models : configuredOpenRouterModels();
 
   if (models.length === 0) {

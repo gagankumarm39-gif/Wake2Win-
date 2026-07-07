@@ -348,17 +348,28 @@ function userKeyAttempts(
   signal: AbortSignal | undefined,
   userKeys: UserProviderKey[]
 ): StreamAttempt[] {
-  return userKeys.map((k) => {
-    const model = resolveModel(k.provider, k.model);
+  return userKeys.flatMap((k): StreamAttempt[] => {
     switch (k.provider) {
-      case "gemini":
-        return { model: `user:${model}`, open: () => geminiTokens(messages, signal, { apiKey: k.apiKey, model }) };
       case "openrouter":
-        return { model: `user:${model}`, open: () => openRouterTokens(model, messages, signal, k.apiKey) };
-      case "openai":
-        return { model: `user:${model}`, open: () => openAITokens(model, messages, signal, k.apiKey) };
-      case "anthropic":
-        return { model: `user:${model}`, open: () => anthropicTokens(model, messages, signal, k.apiKey) };
+        // Students never pick an OpenRouter model (any legacy stored model is
+        // ignored): one attempt per env-configured model, in order, with the
+        // student's key — 429/timeout/unavailable falls through to the next.
+        return configuredOpenRouterModels().map((m) => ({
+          model: `user:${m}`,
+          open: () => openRouterTokens(m, messages, signal, k.apiKey),
+        }));
+      case "gemini": {
+        const model = resolveModel(k.provider, k.model);
+        return [{ model: `user:${model}`, open: () => geminiTokens(messages, signal, { apiKey: k.apiKey, model }) }];
+      }
+      case "openai": {
+        const model = resolveModel(k.provider, k.model);
+        return [{ model: `user:${model}`, open: () => openAITokens(model, messages, signal, k.apiKey) }];
+      }
+      case "anthropic": {
+        const model = resolveModel(k.provider, k.model);
+        return [{ model: `user:${model}`, open: () => anthropicTokens(model, messages, signal, k.apiKey) }];
+      }
     }
   });
 }

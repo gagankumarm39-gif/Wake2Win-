@@ -3,7 +3,7 @@
  *
  * Resolution order:
  *   1. Student Gemini key      (their model choice)
- *   2. Student OpenRouter key  (their model choice)
+ *   2. Student OpenRouter key  (env OPENROUTER_MODELS list, tried in order)
  *   3. Student OpenAI key      (their model choice)
  *   4. Student Anthropic key   (their model choice)
  *   5. App Gemini key          (env)
@@ -48,10 +48,14 @@ function candidatesFor(
       case "gemini":
         return { provider: "gemini", ownKey: true, run: () => generateWithGemini(prompt, json, { apiKey: k.apiKey, model }) };
       case "openrouter":
+        // Students never pick an OpenRouter model (any legacy stored model is
+        // ignored): iterate the server's OPENROUTER_MODELS list in order with
+        // the student's key; each 429/timeout/unavailable model falls through
+        // to the next inside generateWithOpenRouter.
         return {
           provider: "openrouter",
           ownKey: true,
-          run: () => generateWithOpenRouter(prompt, json, { apiKey: k.apiKey, models: model ? [model] : undefined }),
+          run: () => generateWithOpenRouter(prompt, json, { apiKey: k.apiKey }),
         };
       case "openai":
         return { provider: "openai", ownKey: true, run: () => generateWithOpenAI(prompt, json, { apiKey: k.apiKey, model }) };

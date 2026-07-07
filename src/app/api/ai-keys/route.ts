@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { encryptSecret } from "@/lib/crypto";
-import { AI_PROVIDER_ORDER, isAIProvider } from "@/lib/ai/provider-config";
+import { AI_PROVIDERS, AI_PROVIDER_ORDER, isAIProvider } from "@/lib/ai/provider-config";
 import type { UserAIKeyInfo } from "@/types";
 
 /**
@@ -88,7 +88,9 @@ export async function POST(request: NextRequest) {
         user_id: user.id,
         provider,
         api_key: ciphertext,
-        default_model: model || null,
+        // Server-managed providers (OpenRouter) never store a model — the
+        // server iterates OPENROUTER_MODELS from the environment per request.
+        default_model: AI_PROVIDERS[provider].serverManagedModel ? null : model || null,
       },
       { onConflict: "user_id,provider" }
     )

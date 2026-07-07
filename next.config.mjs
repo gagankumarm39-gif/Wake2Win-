@@ -2,6 +2,12 @@
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+
+  allowedDevOrigins: [
+    "http://10.59.121.9:3000",
+    "http://localhost:3000",
+  ],
+
   headers: async () => [
     {
       source: "/(.*)",

@@ -16,6 +16,12 @@ export interface AIProviderMeta {
   models: string[];
   /** Shown as a small badge, e.g. "Future-ready". */
   badge?: string;
+  /**
+   * True when students never pick a model: the server iterates its own
+   * env-configured list (OPENROUTER_MODELS) on every request. The UI hides
+   * all model inputs and no model is ever stored for this provider.
+   */
+  serverManagedModel?: boolean;
 }
 
 export const AI_PROVIDER_ORDER: AIProvider[] = ["gemini", "openrouter", "openai", "anthropic"];
@@ -33,17 +39,14 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderMeta> = {
   openrouter: {
     id: "openrouter",
     name: "OpenRouter",
-    tagline: "One key, many free models",
+    tagline: "One key, many free models — picked automatically",
     keyUrl: "https://openrouter.ai/keys",
     keyPlaceholder: "sk-or-v1-…",
-    defaultModel: "meta-llama/llama-3.3-70b-instruct:free",
-    models: [
-      "google/gemma-4-26b-a4b-it:free",
-      "meta-llama/llama-3.3-70b-instruct:free",
-      "openai/gpt-oss-20b:free",
-      "qwen/qwen3-next-80b-a3b-instruct:free",
-      "nvidia/nemotron-3-nano-30b-a3b:free",
-    ],
+    // Never shown to students and never stored: the server iterates the
+    // OPENROUTER_MODELS list from the environment on every request.
+    defaultModel: "auto",
+    models: [],
+    serverManagedModel: true,
   },
   openai: {
     id: "openai",

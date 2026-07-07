@@ -85,7 +85,12 @@ export default function AIProvidersPage() {
       const res = await fetch("/api/ai-keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, apiKey, model: card.model.trim() || null }),
+        body: JSON.stringify({
+          provider,
+          apiKey,
+          // Server-managed providers (OpenRouter) never store a model.
+          model: AI_PROVIDERS[provider].serverManagedModel ? null : card.model.trim() || null,
+        }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok) throw new Error(data?.error ?? "Could not save the key");
@@ -120,7 +125,7 @@ export default function AIProvidersPage() {
           // A freshly typed key is tested as-is (before saving); otherwise
           // the server tests the stored key.
           ...(typedKey ? { apiKey: typedKey } : {}),
-          model: card.model.trim() || null,
+          model: AI_PROVIDERS[provider].serverManagedModel ? null : card.model.trim() || null,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -240,7 +245,9 @@ export default function AIProvidersPage() {
                     <div className="mt-4 rounded-xl border border-slate-200 bg-white/50 p-3 text-sm dark:border-slate-700 dark:bg-slate-900/40">
                       <p className="font-mono text-slate-600 dark:text-slate-300">{maskFor(meta)}</p>
                       <p className="mt-1 text-xs text-slate-500">
-                        Model: {status.defaultModel ?? `${meta.defaultModel} (default)`}
+                        {meta.serverManagedModel
+                          ? "Model: chosen automatically by Wake2Win"
+                          : `Model: ${status.defaultModel ?? `${meta.defaultModel} (default)`}`}
                         {updated && <> · Updated {updated}</>}
                       </p>
                     </div>
@@ -274,24 +281,31 @@ export default function AIProvidersPage() {
                           </a>
                         </p>
                       </div>
-                      <div>
-                        <label className="text-sm font-medium" htmlFor={`${provider}-model`}>
-                          Model <span className="font-normal text-slate-500">(optional)</span>
-                        </label>
-                        <Input
-                          id={`${provider}-model`}
-                          list={`${provider}-models`}
-                          className="mt-1.5 font-mono text-xs"
-                          placeholder={meta.defaultModel}
-                          value={card.model}
-                          onChange={(e) => patchCard(provider, { model: e.target.value })}
-                        />
-                        <datalist id={`${provider}-models`}>
-                          {meta.models.map((m) => (
-                            <option key={m} value={m} />
-                          ))}
-                        </datalist>
-                      </div>
+                      {meta.serverManagedModel ? (
+                        <p className="text-xs text-slate-500">
+                          No model to choose — Wake2Win automatically picks the best available
+                          free model for every request.
+                        </p>
+                      ) : (
+                        <div>
+                          <label className="text-sm font-medium" htmlFor={`${provider}-model`}>
+                            Model <span className="font-normal text-slate-500">(optional)</span>
+                          </label>
+                          <Input
+                            id={`${provider}-model`}
+                            list={`${provider}-models`}
+                            className="mt-1.5 font-mono text-xs"
+                            placeholder={meta.defaultModel}
+                            value={card.model}
+                            onChange={(e) => patchCard(provider, { model: e.target.value })}
+                          />
+                          <datalist id={`${provider}-models`}>
+                            {meta.models.map((m) => (
+                              <option key={m} value={m} />
+                            ))}
+                          </datalist>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -351,7 +365,7 @@ export default function AIProvidersPage() {
                           onClick={() =>
                             patchCard(provider, {
                               editing: true,
-                              model: status.defaultModel ?? "",
+                              model: meta.serverManagedModel ? "" : status.defaultModel ?? "",
                               feedback: null,
                             })
                           }

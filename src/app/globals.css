@@ -10,6 +10,9 @@
   --color-brand-500: #6d5efc;
   --color-brand-600: #5a48e8;
   --color-surface: #0b0f1a;
+  --color-neon-cyan: #22d3ee;
+  --color-neon-violet: #a78bfa;
+  --color-neon-emerald: #34d399;
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -17,15 +20,34 @@
   --gradient-hero: linear-gradient(135deg, #6d5efc 0%, #38bdf8 50%, #34d399 100%);
   --glass-bg: rgba(255, 255, 255, 0.65);
   --glass-border: rgba(255, 255, 255, 0.4);
+
+  --bg-base: #f3f4fb;
+  --card-bg: rgba(255, 255, 255, 0.58);
+  --card-border: rgba(15, 23, 42, 0.08);
+  --card-highlight: rgba(255, 255, 255, 0.85);
+  --card-shadow: 0 12px 40px -14px rgba(15, 23, 42, 0.18);
+  --card-shadow-hover:
+    0 28px 70px -20px rgba(15, 23, 42, 0.28),
+    0 0 44px -10px rgba(109, 94, 252, 0.22);
 }
 
 .dark {
   --glass-bg: rgba(17, 24, 39, 0.55);
   --glass-border: rgba(255, 255, 255, 0.08);
+
+  --bg-base: #05060f;
+  --card-bg: rgba(14, 17, 34, 0.55);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --card-highlight: rgba(255, 255, 255, 0.07);
+  --card-shadow: 0 12px 40px -14px rgba(0, 0, 0, 0.55);
+  --card-shadow-hover:
+    0 28px 70px -18px rgba(0, 0, 0, 0.7),
+    0 0 48px -8px rgba(109, 94, 252, 0.35);
 }
 
 body {
-  @apply antialiased bg-white text-slate-900 dark:bg-[#0b0f1a] dark:text-slate-100;
+  @apply antialiased text-slate-900 dark:text-slate-100;
+  background: var(--bg-base);
 }
 
 /* ── Glassmorphism ── */
@@ -43,6 +65,131 @@ body {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+/* ── Premium glass panels (dashboard redesign) ── */
+.glass-card {
+  position: relative;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  backdrop-filter: blur(22px) saturate(170%);
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+  border-radius: 1.5rem;
+  box-shadow: inset 0 1px 0 var(--card-highlight), var(--card-shadow);
+  transition: box-shadow 0.5s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.5s ease;
+}
+.glass-card:hover {
+  border-color: rgba(139, 125, 255, 0.38);
+  box-shadow: inset 0 1px 0 var(--card-highlight), var(--card-shadow-hover);
+}
+
+/* Soft neon gradient border (used with .glass-card) */
+.neon-edge::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    rgba(109, 94, 252, 0.55),
+    rgba(34, 211, 238, 0.25) 40%,
+    transparent 60%,
+    rgba(52, 211, 153, 0.35)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+/* ── Aurora background ── */
+@keyframes aurora-drift-1 {
+  0%, 100% { transform: translate3d(-8%, -6%, 0) scale(1); }
+  33% { transform: translate3d(6%, 8%, 0) scale(1.15); }
+  66% { transform: translate3d(-4%, 10%, 0) scale(0.95); }
+}
+@keyframes aurora-drift-2 {
+  0%, 100% { transform: translate3d(6%, 4%, 0) scale(1.05) rotate(0deg); }
+  50% { transform: translate3d(-10%, -8%, 0) scale(1.2) rotate(20deg); }
+}
+@keyframes aurora-drift-3 {
+  0%, 100% { transform: translate3d(0%, 6%, 0) scale(1); }
+  50% { transform: translate3d(8%, -6%, 0) scale(1.25); }
+}
+.aurora-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  will-change: transform;
+}
+.aurora-blob-1 { animation: aurora-drift-1 26s ease-in-out infinite; }
+.aurora-blob-2 { animation: aurora-drift-2 32s ease-in-out infinite; }
+.aurora-blob-3 { animation: aurora-drift-3 24s ease-in-out infinite; }
+
+@keyframes particle-float {
+  0%, 100% { transform: translate3d(0, 0, 0); opacity: 0.2; }
+  25% { opacity: 0.9; }
+  50% { transform: translate3d(14px, -34px, 0); opacity: 0.5; }
+  75% { opacity: 0.85; }
+}
+.particle {
+  position: absolute;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(139, 125, 255, 0.9), rgba(139, 125, 255, 0));
+  animation: particle-float linear infinite;
+  will-change: transform, opacity;
+}
+
+/* Noise texture overlay */
+.noise-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── Orb & flame ── */
+@keyframes orb-spin {
+  to { transform: rotate(360deg); }
+}
+.orb-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: conic-gradient(from 0deg, #6d5efc, #22d3ee, #34d399, #a78bfa, #6d5efc);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  animation: orb-spin 6s linear infinite;
+  will-change: transform;
+}
+
+/* ── Skeleton shimmer ── */
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.skeleton {
+  border-radius: 1.5rem;
+  background: linear-gradient(
+    100deg,
+    var(--card-bg) 40%,
+    rgba(139, 125, 255, 0.14) 50%,
+    var(--card-bg) 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+  border: 1px solid var(--card-border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-blob-1, .aurora-blob-2, .aurora-blob-3,
+  .particle, .orb-ring, .skeleton {
+    animation: none;
+  }
 }
 
 /* ── Assistant chat markdown (react-markdown output) ── */
@@ -105,6 +252,31 @@ body {
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0.25rem 0;
+}
+
+/* ── Notes Studio: print / save-as-PDF ──
+   Only the .print-note card is printed; nav, forms and toolbars hide via
+   Tailwind's print:hidden. */
+@media print {
+  body {
+    background: white !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-note,
+  .print-note * {
+    visibility: visible;
+  }
+  .print-note {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+    color: black !important;
+  }
 }
 
 /* ── Alarm challenge lock mode: no selection anywhere ── */

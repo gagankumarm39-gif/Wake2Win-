@@ -33,7 +33,9 @@ async function runTest(provider: AIProvider, apiKey: string, model: string): Pro
     case "gemini":
       return generateWithGemini(TEST_PROMPT, false, { apiKey, model });
     case "openrouter":
-      return generateWithOpenRouter(TEST_PROMPT, false, { apiKey, models: [model] });
+      // Students never pick an OpenRouter model — the server iterates its
+      // env-configured OPENROUTER_MODELS list until one responds.
+      return generateWithOpenRouter(TEST_PROMPT, false, { apiKey });
     case "openai":
       return generateWithOpenAI(TEST_PROMPT, false, { apiKey, model });
     case "anthropic":
@@ -101,10 +103,19 @@ export async function POST(request: NextRequest) {
     testedModel = testedModel ?? (data as { default_model: string | null }).default_model;
   }
 
-  const resolved = resolveModel(provider, testedModel);
+  // OpenRouter is server-managed: the model list comes from the environment,
+  // so there is no single model to report back to the student.
+  const serverManaged = provider === "openrouter";
+  const resolved = serverManaged ? "auto" : resolveModel(provider, testedModel);
   try {
     await runTest(provider, apiKey, resolved);
-    return NextResponse.json({ ok: true, message: `Connected — ${resolved} responded.`, model: resolved });
+    return NextResponse.json({
+      ok: true,
+      message: serverManaged
+        ? "Connected — OpenRouter responded (model picked automatically)."
+        : `Connected — ${resolved} responded.`,
+      model: resolved,
+    });
   } catch (err) {
     console.error(`[ai-keys/test] ${provider} failed:`, err instanceof Error ? err.message : err);
     return NextResponse.json({ ok: false, message: friendlyError(err), model: resolved });
