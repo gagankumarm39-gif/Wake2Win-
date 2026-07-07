@@ -240,7 +240,7 @@ function openRouterTokens(
       url: "https://openrouter.ai/api/v1/chat/completions",
       headers: {
         Authorization: `Bearer ${key}`,
-        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL ?? "https://wake2-win.vercel.app",
         "X-Title": "Wake2Win",
       },
       label: "OpenRouter",
