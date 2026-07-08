@@ -5,7 +5,7 @@ export const metadata = { title: "Download Android App" };
 /* Update these three constants when publishing a new APK release. */
 const APP_VERSION = "1.0.0";
 const APK_SIZE = "≈ 6 MB";
-const APK_URL "https://github.com/gagankumarm39-gif/Wake2Win-/releases/download/v1.0.0/app-debug.apk";
+const APK_URL = "https://github.com/gagankumarm39-gif/Wake2Win-/releases/download/v1.0.0/app-debug.apk";
 
 const REQUIREMENTS = [
   "Android 6.0 (API 23) or newer",
