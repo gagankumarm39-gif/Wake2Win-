@@ -210,6 +210,19 @@ export default function ProfilePage() {
             <span aria-hidden className="text-slate-400">→</span>
           </Link>
 
+          <Link
+            href="/download"
+            className="flex items-center justify-between rounded-xl border border-slate-300 p-4 text-sm transition-colors hover:border-brand-500 dark:border-slate-700"
+          >
+            <span>
+              <span className="font-semibold">📲 Download Android App</span>
+              <span className="mt-0.5 block text-xs text-slate-500">
+                Install Wake2Win as a native Android APK
+              </span>
+            </span>
+            <span aria-hidden className="text-slate-400">→</span>
+          </Link>
+
           {message && <p className="text-sm text-slate-600 dark:text-slate-300" role="status">{message}</p>}
 
           <div className="flex items-center justify-between">
