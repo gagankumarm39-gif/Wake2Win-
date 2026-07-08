@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { NotesStudio } from "@/components/notes/notes-studio";
+import { NotesHome } from "@/components/mobile/notes-home";
 import type { NoteRecord } from "@/types/ai-studio";
 
 export const metadata = { title: "AI Notes Studio" };
@@ -27,7 +28,8 @@ export default async function NotesPage() {
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           Chapter-wise revision notes with formulas, mnemonics, flashcards and last-minute sheets — in English, ಕನ್ನಡ or हिंदी.
         </p>
-        <div className="mt-8">
+        <NotesHome notes={(notes ?? []) as Partial<NoteRecord>[] as NoteRecord[]} />
+        <div id="notes-studio" className="mt-8 scroll-mt-24">
           <NotesStudio savedInitial={(notes ?? []) as Partial<NoteRecord>[] as NoteRecord[]} />
         </div>
       </div>
