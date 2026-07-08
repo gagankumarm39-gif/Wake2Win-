@@ -1,4 +1,7 @@
-import type { CapacitorConfig } from "@capacitor/cli";
+// Avoid requiring @capacitor/cli types in environments where the
+// package isn't installed (e.g. editor typecheck). Provide a minimal
+// local fallback type for CapacitorConfig.
+type CapacitorConfig = Record<string, any>;
 
 /**
  * Wake2Win — production Capacitor configuration.
