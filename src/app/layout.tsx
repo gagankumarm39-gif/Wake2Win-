@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { AlarmWatcher } from "@/components/alarms/alarm-watcher";
 import { ReminderWatcher } from "@/components/reminders/reminder-watcher";
 import { MobileBottomNav } from "@/components/navigation/mobile-bottom-nav";
+import { DeepLinkHandler } from "@/components/capacitor/deep-link-handler";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -36,11 +37,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
       </head>
       <body className={`${inter.variable} font-sans`}>
-        <AlarmWatcher />
-        <ReminderWatcher />
-        {children}
-        <MobileBottomNav />
-      </body>
+  <DeepLinkHandler />
+
+  <AlarmWatcher />
+  <ReminderWatcher />
+
+  {children}
+
+  <MobileBottomNav />
+  </body>
     </html>
   );
 }

@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
+import { Capacitor } from "@capacitor/core";
+import { Browser } from "@capacitor/browser";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -36,14 +38,44 @@ function LoginForm() {
   const supabase = createClient();
 
   async function handleGoogle() {
-    setLoading(true);
-    await supabase.auth.signInWithOAuth({
+  setLoading(true);
+
+  if (Capacitor.isNativePlatform()) {
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+        redirectTo: `com.wake2win.app://auth/callback?next=${encodeURIComponent(next)}`,
+        skipBrowserRedirect: true,
       },
     });
+
+    if (error) {
+      setMessage(error.message);
+      setLoading(false);
+      return;
+    }
+
+    if (data?.url) {
+      await Browser.open({
+        url: data.url,
+      });
+    }
+
+    return;
   }
+
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+    },
+  });
+
+  if (error) {
+    setMessage(error.message);
+    setLoading(false);
+  }
+}
 
   async function handleEmail(e: React.FormEvent) {
     e.preventDefault();
@@ -150,3 +182,6 @@ export default function LoginPage() {
     </main>
   );
 }
+
+
+  
