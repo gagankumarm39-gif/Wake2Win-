@@ -29,18 +29,21 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Setup Java
-            - name: Verify Java
-        run: |
-          java -version
-          javac -version
-          echo "JAVA_HOME=$JAVA_HOME"
+            - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
           cache: gradle
 
+      - name: Verify Java
+        run: |
+          java -version
+          javac -version
+          echo "JAVA_HOME=$JAVA_HOME"
+
+      - name: Install dependencies
+        run: npm ci
       - name: Install dependencies
         run: npm ci
 
