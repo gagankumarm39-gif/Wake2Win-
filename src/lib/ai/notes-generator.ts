@@ -20,7 +20,8 @@ const LENGTH_SPEC: Record<NoteConfig["length"], string> = {
 
 const FOCUS_SPEC: Record<NoteConfig["focus"], string> = {
   "NCERT Only": "Stick strictly to NCERT content and NCERT keywords. Flag lines that are directly asked from NCERT.",
-  "NEET Level": "NCERT base + NEET twist: assertion-reason traps, previous-year NEET concepts, elimination tricks.",
+  "NEET Level":
+    "NCERT base + NEET twist. Every concept must be NCERT-traceable. Add assertion-reason traps, statement-based (which-is-correct) checks, match-the-following pairs, previous-year (PYQ) NEET angles, elimination tricks, and NEET's classic traps (units, exceptions, look-alike terms). Tag each concept with a difficulty (Easy/Medium/Hard) and mark high-yield ones.",
   "JEE Level": "Concept depth for JEE: derivations that matter, formula variants, common JEE Main/Advanced applications.",
   "Board Level": "Board-exam orientation: definitions as mark-fetching statements, diagrams to practice, stepwise answers.",
 };
@@ -48,9 +49,11 @@ Structure the notes with these sections (skip a section only if truly irrelevant
 6. 📌 One-line revision points (rapid-fire list)
 7. ⚠️ Common mistakes students make
 8. ❓ Frequently asked questions (with crisp answers)
-9. 🎯 Previous-year concepts that keep repeating
+9. 🎯 Previous-year concepts that keep repeating (PYQ style)
 10. 📖 NCERT keywords to underline
-11. 💡 Exam tips for this chapter
+11. ⭐ High-yield rapid revision — the 8–12 points most likely to be tested
+12. 📝 Quick self-test — 3 assertion–reason items and 3 statement-based ("which is correct") MCQs drawn from this chapter, each with the answer + one-line reasoning
+13. 💡 Exam tips for this chapter
 
 Highlight the most important concepts in **bold**. Be exam-accurate and specific to this chapter — no generic filler.`;
 

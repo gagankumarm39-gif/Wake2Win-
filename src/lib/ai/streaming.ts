@@ -9,6 +9,7 @@
  */
 
 import { AI_PROVIDERS, resolveModel } from "./provider-config";
+import { configuredOpenRouterModels } from "./models";
 import type { UserProviderKey } from "@/types";
 
 const STREAM_TIMEOUT_MS = 60_000;
@@ -330,12 +331,9 @@ async function* anthropicTokens(
   }
 }
 
-export function configuredOpenRouterModels(): string[] {
-  const multi = process.env.OPENROUTER_MODELS?.split(",").map((m) => m.trim()).filter(Boolean) ?? [];
-  if (multi.length > 0) return multi;
-  const single = process.env.OPENROUTER_MODEL?.trim();
-  return single ? [single] : [];
-}
+// configuredOpenRouterModels now lives in ./models (shared, sanitised list);
+// re-exported so existing importers (assistant/notes streaming) keep working.
+export { configuredOpenRouterModels };
 
 interface StreamAttempt {
   model: string;
@@ -388,13 +386,21 @@ export async function openChatStream(
   signal?: AbortSignal,
   userKeys: UserProviderKey[] = []
 ): Promise<StreamResult> {
+  // Interleave like the non-streaming chain: OpenRouter #1 → Gemini → rest of
+  // OpenRouter, so a single provider being down never stalls the stream.
+  const appModels = configuredOpenRouterModels();
+  const appAttempts: StreamAttempt[] = [];
+  if (appModels.length > 0) {
+    appAttempts.push({ model: appModels[0], open: () => openRouterTokens(appModels[0], messages, signal) });
+  }
+  appAttempts.push({ model: AI_PROVIDERS.gemini.defaultModel, open: () => geminiTokens(messages, signal) });
+  for (const m of appModels.slice(1)) {
+    appAttempts.push({ model: m, open: () => openRouterTokens(m, messages, signal) });
+  }
+
   const attempts: StreamAttempt[] = [
     ...userKeyAttempts(messages, signal, userKeys),
-    { model: AI_PROVIDERS.gemini.defaultModel, open: () => geminiTokens(messages, signal) },
-    ...configuredOpenRouterModels().map((m) => ({
-      model: m,
-      open: () => openRouterTokens(m, messages, signal),
-    })),
+    ...appAttempts,
   ];
 
   let lastError: StreamError = new StreamError("unavailable", "No AI provider configured");

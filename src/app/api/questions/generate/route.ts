@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { generateQuestions } from "@/lib/ai/question-generator";
+import { generateQuestionsDetailed } from "@/lib/ai/question-generator";
 import { getUserProviderKeys } from "@/lib/ai/user-keys";
+import { isDev } from "@/lib/ai/errors";
 
 const bodySchema = z.object({
   exam: z.enum(["NEET", "JEE", "UPSC", "SSC", "GATE", "CAT", "BOARDS"]),
@@ -23,13 +24,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  // Student keys first, then app keys. generateQuestions never throws —
-  // local bank is the guaranteed fallback.
+  // Student keys first, then app keys. generateQuestionsDetailed never throws —
+  // local bank is the guaranteed fallback so the alarm always has questions.
   const userKeys = await getUserProviderKeys(user.id);
-  const questions = await generateQuestions(parsed.data, userKeys);
+  const { questions, usedFallback, error } = await generateQuestionsDetailed(parsed.data, userKeys);
 
-  // Never expose the correct answer to the client during an active challenge:
-  // the client submits an answer index and we verify server-side (see /api/questions/verify).
+  // The alarm intentionally never surfaces an error to the user, but expose the
+  // real fallback reason via headers so it's visible in dev/telemetry (Priority 2/5).
+  const headers: Record<string, string> = { "x-ai-fallback": usedFallback ? "1" : "0" };
+  if (usedFallback && error && isDev) headers["x-ai-error"] = error.slice(0, 300);
+
   // For simplicity of offline mode, explanation and correctness are returned after answering.
-  return NextResponse.json({ questions });
+  return NextResponse.json({ questions, usedFallback }, { headers });
 }

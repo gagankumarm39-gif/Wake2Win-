@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getUserProviderKeys } from "@/lib/ai/user-keys";
 import { generateTestPaper } from "@/lib/ai/test-generator";
+import { isDev } from "@/lib/ai/errors";
 import { checkTestQuota, recordUsage } from "@/lib/ai/quota";
 import { getExam, suggestedDuration } from "@/lib/exams/registry";
 import type { TestConfig } from "@/types/ai-studio";
@@ -86,10 +87,24 @@ export async function POST(request: NextRequest) {
   try {
     paper = await generateTestPaper(config, userKeys);
   } catch (err) {
-    console.error("[tests/generate] failed:", err instanceof Error ? err.message : err);
+    // Report the REAL reason (rate limit / auth / timeout / invalid model /
+    // provider unavailable) instead of a generic message (Priority 2).
+    // AIError may be a type-only interface; avoid using instanceof. Detect
+    // by presence of the `kind` field instead.
+    const aiErr = err && typeof (err as any).kind !== "undefined" ? (err as any) : null;
+    const status = aiErr?.kind === "rate_limited" ? 429 : 502;
+    console.error(
+      "[tests/generate] failed:",
+      aiErr ? `${aiErr.kind} (${aiErr.provider}${aiErr.status ? " HTTP " + aiErr.status : ""})` : err
+    );
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Test generation failed. Please try again." },
-      { status: 502 }
+      {
+        error: aiErr ? aiErr.userMessage() : err instanceof Error ? err.message : "Test generation failed. Please try again.",
+        reason: aiErr?.kind ?? "unavailable",
+        // Full provider payload only in development.
+        ...(isDev && aiErr?.detail !== undefined ? { detail: aiErr.detail } : {}),
+      },
+      { status }
     );
   }
 

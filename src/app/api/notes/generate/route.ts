@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { openChatStream, StreamError } from "@/lib/ai/streaming";
 import { generateWithChain } from "@/lib/ai/generate";
+import { AIError, logProviderFailure } from "@/lib/ai/errors";
 import { getUserProviderKeys } from "@/lib/ai/user-keys";
 import { buildNotesPrompt } from "@/lib/ai/notes-generator";
 import { getExam } from "@/lib/exams/registry";
@@ -86,8 +87,14 @@ export async function POST(request: NextRequest) {
             full = res.text;
             model = res.provider;
             send({ type: "token", text: full });
-          } catch {
-            send({ type: "error", message: "All AI providers are busy right now. Please try again in a minute." });
+          } catch (fallbackErr) {
+            // Report the REAL reason (rate limit / auth / timeout …) — Priority 2.
+            const aiErr = fallbackErr instanceof AIError ? fallbackErr : null;
+            if (aiErr) logProviderFailure("notes fallback", aiErr);
+            send({
+              type: "error",
+              message: aiErr ? aiErr.userMessage() : "All AI providers are busy right now. Please try again in a minute.",
+            });
           }
         }
       }

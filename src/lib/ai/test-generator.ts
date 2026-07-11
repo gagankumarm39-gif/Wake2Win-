@@ -13,6 +13,7 @@
 
 import { z } from "zod";
 import { generateWithChain } from "./generate";
+import { AIError, pickBestError, toAIError } from "./errors";
 import { shuffle } from "@/lib/utils";
 import { getExam, type ExamDefinition, type SubjectiveSection } from "@/lib/exams/registry";
 import type { QuestionSource, UserProviderKey } from "@/types";
@@ -224,6 +225,17 @@ interface ChunkTask {
   section?: SubjectiveSection; // subjective papers
 }
 
+/** Exam-specific NEET/JEE style guidance for the paper generator. */
+function examStyle(exam: ExamDefinition): string {
+  if (exam.short === "NEET" || exam.name.includes("NEET")) {
+    return `NEET rules: base every question strictly on NCERT (Class 11 & 12) concepts and keywords. Across the set, rotate NEET's real question styles — direct NCERT-statement MCQs, assertion–reason (with the 4 standard options), "which statement(s) is/are correct" combinations, and match-the-following pairings. Favour high-yield, previously-repeated (PYQ-style) concepts and NEET's classic traps (units, exceptions, NCERT-only facts, look-alike terms).`;
+  }
+  if (exam.short === "JEE" || exam.name.includes("JEE")) {
+    return `JEE rules: concept-application heavy. Distractors should trap common sign/unit/algebra errors. Mix single-step and multi-step reasoning.`;
+  }
+  return `Keep questions strictly syllabus-accurate for ${exam.name}, with a mix of factual and application-based items.`;
+}
+
 export function buildQuestionsPrompt(exam: ExamDefinition, config: TestConfig, task: ChunkTask): string {
   const difficulty =
     config.difficulty === "mixed"
@@ -235,11 +247,13 @@ Subject: ${task.subject}
 Chapter: ${task.chapter}
 Difficulty: ${difficulty}
 
+${examStyle(exam)}
+
 Every question object must also include:
 - "difficulty": "easy" | "medium" | "hard"
 - "estimatedSeconds": realistic solving time in seconds
 - "bloom": Bloom taxonomy level ("Remember"|"Understand"|"Apply"|"Analyze"|"Evaluate"|"Create")
-- "explanation": detailed step-by-step explanation`;
+- "explanation": detailed step-by-step explanation that also names the common trap or misconception`;
 
   if (task.section) {
     return `${base}
@@ -468,9 +482,22 @@ export async function generateTestPaper(
   // Step 2 — AI blueprint.
   const blueprint = await buildBlueprint(exam, config, userKeys);
 
-  // Step 3 — generate the paper in concurrent batches.
+  // Step 3 — generate the paper in concurrent batches. Capture provider
+  // failures so a fully-failed run can report the REAL reason (Priority 2).
+  const failures: AIError[] = [];
   const tasks = chunkTasks(exam, blueprint);
-  const generated = (await pool(tasks.map((t) => () => generateChunk(exam, config, t, userKeys))))
+  const generated = (
+    await pool(
+      tasks.map((t) => async () => {
+        try {
+          return await generateChunk(exam, config, t, userKeys);
+        } catch (err) {
+          failures.push(err instanceof AIError ? err : toAIError(err));
+          throw err;
+        }
+      })
+    )
+  )
     .filter(Boolean)
     .flat() as TestQuestion[];
 
@@ -526,7 +553,11 @@ export async function generateTestPaper(
   }
 
   if (questions.length < Math.max(5, Math.floor(target * 0.6))) {
-    throw new Error(
+    // Report the real underlying reason (rate limit / auth / timeout …) instead
+    // of a generic message, so the wizard can show it (Priority 2).
+    if (failures.length > 0) throw pickBestError(failures);
+    throw new AIError(
+      "unavailable",
       "The AI providers could not produce enough questions right now. Please try again in a few minutes."
     );
   }
