@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ALARM_SOUNDS, AlarmSoundEngine } from "@/lib/alarm-sound";
+import { safeSchedule } from "@/lib/native/alarm-plugin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -93,15 +94,20 @@ export function AlarmForm({ initial }: { initial?: Alarm }) {
       is_active: true,
     };
 
-    const { error: dbError } = initial
-      ? await supabase.from("alarms").update(payload).eq("id", initial.id)
-      : await supabase.from("alarms").insert(payload);
+    const { data: saved, error: dbError } = initial
+      ? await supabase.from("alarms").update(payload).eq("id", initial.id).select().single()
+      : await supabase.from("alarms").insert(payload).select().single();
 
     if (dbError) {
       setError("Could not save the alarm. Please try again.");
       setSaving(false);
       return;
     }
+
+    // Arm the real native Android alarm (no-op on web — the AlarmWatcher stays
+    // as the browser/PWA fallback). Uses the saved row so it has the DB id.
+    await safeSchedule((saved ?? { ...payload, id: initial?.id }) as Alarm);
+
     router.push("/alarms");
     router.refresh();
   }

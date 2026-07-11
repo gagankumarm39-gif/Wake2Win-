@@ -1,8 +1,13 @@
 apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
 
 android {
     namespace "com.wake2win.app"
     compileSdk rootProject.ext.compileSdkVersion
+
+    kotlinOptions {
+        jvmTarget = '21'
+    }
 
     defaultConfig {
         applicationId "com.wake2win.app"

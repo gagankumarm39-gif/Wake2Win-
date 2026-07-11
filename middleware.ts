@@ -1,9 +1,27 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-type CookieToSet = { name: string; value: string; options: CookieOptions };
+type CookieToSet = {
+  name: string;
+  value: string;
+  options: CookieOptions;
+};
 
-const PROTECTED_PREFIXES = ["/dashboard", "/alarms", "/pomodoro", "/analytics", "/assistant", "/focus", "/profile", "/missions", "/onboarding", "/reminders", "/settings", "/tests", "/notes"];
+const PROTECTED_PREFIXES = [
+  "/dashboard",
+  "/alarms",
+  "/pomodoro",
+  "/analytics",
+  "/assistant",
+  "/focus",
+  "/profile",
+  "/missions",
+  "/onboarding",
+  "/reminders",
+  "/settings",
+  "/tests",
+  "/notes",
+];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -15,15 +33,24 @@ export async function middleware(request: NextRequest) {
       cookies: {
         getAll: () => request.cookies.getAll(),
         setAll: (cookies: CookieToSet[]) => {
-          cookies.forEach(({ name, value }) => request.cookies.set(name, value));
+          cookies.forEach(({ name, value }) =>
+            request.cookies.set(name, value)
+          );
+
           response = NextResponse.next({ request });
-          cookies.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+
+          cookies.forEach(({ name, value, options }) =>
+            response.cookies.set(name, value, options)
+          );
         },
       },
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   const path = request.nextUrl.pathname;
 
   if (!user && PROTECTED_PREFIXES.some((p) => path.startsWith(p))) {
@@ -37,5 +64,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|icons/|sounds/).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|icons/|sounds/).*)",
+  ],
 };

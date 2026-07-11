@@ -15,6 +15,21 @@ import type { Alarm, Exam, GeneratedQuestion } from "@/types";
 const SECONDS_PER_QUESTION = 25;
 const pad = (n: number) => String(n).padStart(2, "0");
 
+/**
+ * When this challenge is hosted inside the native AlarmActivity WebView, the
+ * activity injects `window.AndroidAlarm`. Calling it stops the native ringing
+ * service and closes the lock-screen activity. No-op in the browser/PWA.
+ */
+interface AndroidAlarmBridge {
+  dismiss(): void;
+  snooze(minutes: number): void;
+}
+declare global {
+  interface Window {
+    AndroidAlarm?: AndroidAlarmBridge;
+  }
+}
+
 export function RingChallenge({ alarm, exam }: { alarm: Alarm; exam: Exam }) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -134,6 +149,8 @@ export function RingChallenge({ alarm, exam }: { alarm: Alarm; exam: Exam }) {
   const finish = useCallback(async () => {
     setStatus("done");
     engine.stop();
+    // Stop the native Android alarm service (no-op on web).
+    window.AndroidAlarm?.dismiss();
     const times = solveTimesRef.current;
     const avg = times.length ? times.reduce((a, b) => a + b, 0) / times.length : null;
 
@@ -230,6 +247,8 @@ export function RingChallenge({ alarm, exam }: { alarm: Alarm; exam: Exam }) {
       await supabase.from("alarm_events").update({ status: "snoozed" }).eq("id", eventIdRef.current);
     }
     localStorage.setItem(`w2w:snooze:${alarm.id}`, String(Date.now() + alarm.snooze_minutes * 60_000));
+    // Hand the snooze to the native alarm engine (re-fires in N min); no-op on web.
+    window.AndroidAlarm?.snooze(alarm.snooze_minutes);
     router.push("/dashboard");
   }
 

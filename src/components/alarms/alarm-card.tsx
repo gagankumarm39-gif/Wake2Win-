@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Pencil, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { safeSchedule, safeCancel } from "@/lib/native/alarm-plugin";
 import { cn } from "@/lib/utils";
 import type { Alarm } from "@/types";
 
@@ -21,13 +22,20 @@ export function AlarmCard({ alarm }: { alarm: Alarm }) {
     const next = !active;
     setActive(next);
     const { error } = await supabase.from("alarms").update({ is_active: next }).eq("id", alarm.id);
-    if (error) setActive(!next);
+    if (error) {
+      setActive(!next);
+    } else {
+      // Keep the native alarm in sync with the toggle.
+      if (next) await safeSchedule({ ...alarm, is_active: true });
+      else await safeCancel(alarm.id);
+    }
     setBusy(false);
   }
 
   async function remove() {
     if (!confirm("Delete this alarm?")) return;
     await supabase.from("alarms").delete().eq("id", alarm.id);
+    await safeCancel(alarm.id);
     router.refresh();
   }
 
