@@ -23,7 +23,7 @@ import { Markdown } from "@/components/assistant/markdown";
 import { FlashcardDeck } from "./flashcard-deck";
 import { createClient } from "@/lib/supabase/client";
 import { useSSEGeneration } from "@/hooks/use-sse-generation";
-import { NOTE_EXTRA_LABELS } from "@/lib/ai/notes-generator";
+import { NOTE_EXTRA_LABELS, cleanNotesMarkdown } from "@/lib/ai/notes-generator";
 import { TEST_EXAMS, TEST_EXAM_ORDER } from "@/lib/exams/registry";
 import { cn } from "@/lib/utils";
 import {
@@ -196,7 +196,7 @@ export function NotesStudio({ savedInitial }: { savedInitial: NoteRecord[] }) {
 
   function fullMarkdown(): string {
     if (!note) return "";
-    let md = note.content;
+    let md = cleanNotesMarkdown(note.content);
     for (const kind of NOTE_EXTRA_KINDS) {
       const extra = note.extras[kind];
       if (!extra) continue;
@@ -228,7 +228,9 @@ export function NotesStudio({ savedInitial }: { savedInitial: NoteRecord[] }) {
   }, [saved, query]);
 
   // note.content is empty until generation completes; fall back to the live stream.
-  const displayText = note?.content || gen.text;
+  // Strip any whole-answer code fence / JSON wrapper a model may have added so
+  // the viewer shows formatted notes, not one gray code block (Priority: notes).
+  const displayText = cleanNotesMarkdown(note?.content || gen.text);
   const showOutput = note !== null;
 
   return (

@@ -147,12 +147,17 @@ const NEET_BIOLOGY: BankItem[] = [
     hint: "One of these belongs to the pancreas.",
   },
   {
-    exam: "NEET", subject: "Biology", difficulty: "easy",
-    question: "The powerhouse organelle that also contains its own circular DNA is the:",
-    options: ["Mitochondrion", "Nucleus", "Vacuole", "Peroxisome"],
+    exam: "NEET", subject: "Biology", difficulty: "medium",
+    question: "The F1 (oxysome/ATP synthase) particles that carry out ATP synthesis during oxidative phosphorylation are located on the:",
+    options: [
+      "Inner mitochondrial membrane (cristae)",
+      "Outer mitochondrial membrane",
+      "Mitochondrial matrix",
+      "Perimitochondrial space",
+    ],
     correctIndex: 0,
-    explanation: "Mitochondria generate ATP and possess their own circular DNA and 70S ribosomes.",
-    hint: "Semi-autonomous organelle.",
+    explanation: "Per NCERT, the F0–F1 ATP synthase (oxysomes) stud the inner mitochondrial membrane's cristae, where the proton gradient built by the ETC drives ATP formation.",
+    hint: "Think about where the electron transport chain and the proton gradient sit.",
   },
 ];
 

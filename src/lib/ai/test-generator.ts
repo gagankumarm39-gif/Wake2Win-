@@ -37,6 +37,19 @@ function extractJson(raw: string): unknown {
   return JSON.parse(raw.slice(start, end + 1));
 }
 
+/** Chain gate: reject 200-but-empty replies for a given JSON array key so the
+ *  chain keeps trying other models instead of accepting a useless response. */
+function hasArray(key: string): (text: string) => boolean {
+  return (text: string) => {
+    try {
+      const data = extractJson(text) as Record<string, unknown>;
+      return Array.isArray(data?.[key]) && (data[key] as unknown[]).length > 0;
+    } catch {
+      return false;
+    }
+  };
+}
+
 /** Run tasks with limited concurrency; failed tasks resolve to null. */
 async function pool<T>(tasks: (() => Promise<T>)[], limit = CONCURRENCY): Promise<(T | null)[]> {
   const results: (T | null)[] = new Array(tasks.length).fill(null);
@@ -158,6 +171,7 @@ export async function buildBlueprint(
     const { text } = await generateWithChain(buildBlueprintPrompt(exam, config, perSubject), {
       json: true,
       userKeys,
+      validate: hasArray("items"),
     });
     const parsed = blueprintSchema.parse(extractJson(text));
     // Trust the AI only if its plan matches the request; else fall back.
@@ -300,7 +314,7 @@ async function generateChunk(
   userKeys: UserProviderKey[]
 ): Promise<TestQuestion[]> {
   const prompt = buildQuestionsPrompt(exam, config, task);
-  const { text, provider } = await generateWithChain(prompt, { json: true, userKeys });
+  const { text, provider } = await generateWithChain(prompt, { json: true, userKeys, validate: hasArray("questions") });
   const raw = extractJson(text) as { questions?: unknown[] };
   const list = Array.isArray(raw?.questions) ? raw.questions : [];
   const { marks, negative } = marksFor(exam, config, task.section);

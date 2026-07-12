@@ -65,6 +65,21 @@ function extractJson(raw: string): unknown {
   return JSON.parse(raw.slice(start, end + 1));
 }
 
+/**
+ * Chain-level gate: a model response is only usable if it actually carries at
+ * least one question. Some free models answer 200 OK with `{"questions":[]}`;
+ * without this the chain would "succeed" on that empty reply and we'd fall
+ * straight to the local bank instead of trying the next (working) model.
+ */
+function hasQuestions(text: string): boolean {
+  try {
+    const data = extractJson(text) as { questions?: unknown[] };
+    return Array.isArray(data?.questions) && data.questions.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Shuffle answer order per question (anti-cheat: no memorizable positions). */
 function randomize(q: z.infer<typeof questionSchema>, source: QuestionSource): GeneratedQuestion {
   const order = shuffle([0, 1, 2, 3]);
@@ -103,7 +118,7 @@ export async function generateQuestionsDetailed(
   const prompt = buildPrompt({ ...req, count }, seed);
 
   try {
-    const { text, provider } = await generateWithChain(prompt, { json: true, userKeys });
+    const { text, provider } = await generateWithChain(prompt, { json: true, userKeys, validate: hasQuestions });
     const parsed = payloadSchema.parse(extractJson(text));
     const questions = parsed.questions.slice(0, count).map((q) => randomize(q, provider));
     if (questions.length >= count) return { questions, usedFallback: false };

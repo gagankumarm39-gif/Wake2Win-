@@ -5,7 +5,7 @@ import { openChatStream, StreamError } from "@/lib/ai/streaming";
 import { generateWithChain } from "@/lib/ai/generate";
 import { AIError, logProviderFailure } from "@/lib/ai/errors";
 import { getUserProviderKeys } from "@/lib/ai/user-keys";
-import { buildNotesPrompt } from "@/lib/ai/notes-generator";
+import { buildNotesPrompt, cleanNotesMarkdown } from "@/lib/ai/notes-generator";
 import { getExam } from "@/lib/exams/registry";
 import { NOTE_FOCUSES, NOTE_LANGUAGES, NOTE_LENGTHS, type NoteConfig } from "@/types/ai-studio";
 
@@ -100,7 +100,8 @@ export async function POST(request: NextRequest) {
       }
 
       let savedId: string | null = null;
-      if (full.trim()) {
+      const cleaned = cleanNotesMarkdown(full);
+      if (cleaned) {
         const record = {
           title: `${config.chapter} — ${config.length}`,
           exam: exam.id,
@@ -110,7 +111,7 @@ export async function POST(request: NextRequest) {
           language: config.language,
           length: config.length,
           focus: config.focus,
-          content: full,
+          content: cleaned,
         };
         if (noteId) {
           // Regenerate in place; extras reset because they described the old content.

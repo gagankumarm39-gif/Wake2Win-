@@ -109,7 +109,23 @@ async function runWithRetry(candidate: Candidate): Promise<string> {
 
 export async function generateWithChain(
   prompt: string,
-  { json = true, userKeys = [] }: { json?: boolean; userKeys?: UserProviderKey[] } = {}
+  {
+    json = true,
+    userKeys = [],
+    validate,
+  }: {
+    json?: boolean;
+    userKeys?: UserProviderKey[];
+    /**
+     * Optional semantic gate. A provider can return HTTP 200 with non-empty but
+     * USELESS text (e.g. `{"questions":[]}` from a flaky free model). Returning
+     * that as success makes the caller discard it and fall back to the local
+     * bank even though the NEXT provider would have produced real content. When
+     * supplied, a candidate only counts as success if its text also passes
+     * `validate`; otherwise the chain treats it as a failure and moves on.
+     */
+    validate?: (text: string) => boolean;
+  } = {}
 ): Promise<ChainResult> {
   const candidates = [...ownCandidates(prompt, json, userKeys), ...appCandidates(prompt, json)];
   const errors: AIError[] = [];
@@ -117,11 +133,13 @@ export async function generateWithChain(
   for (const candidate of candidates) {
     try {
       const text = (await runWithRetry(candidate)).trim();
-      if (text) {
+      if (text && (!validate || validate(text))) {
         console.log(`[ai] ${candidate.label} succeeded`);
         return { text, provider: candidate.provider, ownKey: candidate.ownKey };
       }
-      errors.push(new AIError("empty", `${candidate.label} returned empty text`, { provider: candidate.provider }));
+      const reason = text ? "returned unusable content" : "returned empty text";
+      logProviderFailure(candidate.label, new AIError("empty", `${candidate.label} ${reason}`, { provider: candidate.provider }));
+      errors.push(new AIError("empty", `${candidate.label} ${reason}`, { provider: candidate.provider }));
     } catch (err) {
       const aiErr = err instanceof AIError ? err : toAIError(err, { provider: candidate.provider });
       logProviderFailure(candidate.label, aiErr);

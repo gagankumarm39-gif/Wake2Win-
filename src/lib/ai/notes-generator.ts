@@ -31,7 +31,8 @@ export function buildNotesPrompt(config: NoteConfig): { system: string; user: st
   const examName = exam?.name ?? config.examId;
   const system = `You are Wake2Win's Notes Studio — an elite ${examName} educator who writes beautiful, information-dense revision notes for Indian students.
 Output language: ${config.language}.${config.language !== "English" ? " Write the notes in " + config.language + " but keep technical terms, formulas and standard scientific vocabulary in English where students expect it." : ""}
-Formatting: GitHub-flavored Markdown. Use # / ## / ### headings, tables, bullet lists, **bold** key terms, > blockquotes for tips, and LaTeX for every formula (inline $...$ or display $$...$$). For processes/flows draw simple text flowcharts with arrows inside fenced code blocks (e.g. Glucose → Pyruvate → Acetyl-CoA). Never use HTML.`;
+Formatting: GitHub-flavored Markdown. Use # / ## / ### headings, tables, bullet lists, **bold** key terms, > blockquotes for tips, and LaTeX for every formula (inline $...$ or display $$...$$). For processes/flows draw simple text flowcharts with arrows inside fenced code blocks (e.g. Glucose → Pyruvate → Acetyl-CoA). Never use HTML.
+Output the Markdown notes directly as your entire reply. Do NOT wrap the whole answer in a code fence, do NOT return JSON, and do NOT add any preamble like "Here are your notes:".`;
 
   const user = `Create short notes for:
 Exam: ${examName}
@@ -58,6 +59,37 @@ Structure the notes with these sections (skip a section only if truly irrelevant
 Highlight the most important concepts in **bold**. Be exam-accurate and specific to this chapter — no generic filler.`;
 
   return { system, user };
+}
+
+/**
+ * Notes are meant to render as GitHub-flavored Markdown, but models sometimes
+ * wrap the WHOLE answer in a single ```markdown … ``` (or bare ```) fence, or
+ * add a "Here are your notes:" preamble. ReactMarkdown then shows the entire
+ * chapter as one gray code block instead of formatted notes. This strips a
+ * single fence that encloses the whole response (and a JSON `{"notes":"…"}`
+ * wrapper if a model ignored the markdown instruction) so the viewer always
+ * gets clean study material. Inner code fences (text flowcharts) are untouched.
+ */
+export function cleanNotesMarkdown(raw: string): string {
+  let text = raw.trim();
+  if (!text) return text;
+
+  // A model that answered with JSON like {"notes":"# ...","content":"..."}.
+  if (text.startsWith("{")) {
+    try {
+      const obj = JSON.parse(text) as Record<string, unknown>;
+      const field = obj.notes ?? obj.content ?? obj.markdown ?? obj.text;
+      if (typeof field === "string" && field.trim()) text = field.trim();
+    } catch {
+      // Not valid JSON — leave as-is and let the fence logic run.
+    }
+  }
+
+  // Whole answer wrapped in one fenced block: ```[lang]\n … \n```
+  const fence = text.match(/^```[a-zA-Z]*\n([\s\S]*?)\n```$/);
+  if (fence) text = fence[1].trim();
+
+  return text;
 }
 
 /* ── Extras ── */
