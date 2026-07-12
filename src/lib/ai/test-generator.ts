@@ -13,7 +13,7 @@
 
 import { z } from "zod";
 import { generateWithChain } from "./generate";
-import { AIError, pickBestError, toAIError } from "./errors";
+import { AIError, isDev, pickBestError, toAIError } from "./errors";
 import { shuffle } from "@/lib/utils";
 import { getExam, type ExamDefinition, type SubjectiveSection } from "@/lib/exams/registry";
 import type { QuestionSource, UserProviderKey } from "@/types";
@@ -242,7 +242,7 @@ interface ChunkTask {
 /** Exam-specific NEET/JEE style guidance for the paper generator. */
 function examStyle(exam: ExamDefinition): string {
   if (exam.short === "NEET" || exam.name.includes("NEET")) {
-    return `NEET rules: base every question strictly on NCERT (Class 11 & 12) concepts and keywords. Across the set, rotate NEET's real question styles — direct NCERT-statement MCQs, assertion–reason (with the 4 standard options), "which statement(s) is/are correct" combinations, and match-the-following pairings. Favour high-yield, previously-repeated (PYQ-style) concepts and NEET's classic traps (units, exceptions, NCERT-only facts, look-alike terms).`;
+    return `NEET rules: base every question strictly on NCERT (Class 11 & 12) concepts and keywords. Across the set, rotate NEET's real question styles — direct NCERT-statement MCQs, assertion–reason (with the 4 standard options), "which statement(s) is/are correct" combinations, and match-the-following pairings. Use previously-repeated (PYQ-style) concepts and NEET's classic traps (units, exceptions, NCERT-only facts, look-alike terms) — but only from within the given chapter.`;
   }
   if (exam.short === "JEE" || exam.name.includes("JEE")) {
     return `JEE rules: concept-application heavy. Distractors should trap common sign/unit/algebra errors. Mix single-step and multi-step reasoning.`;
@@ -259,6 +259,12 @@ export function buildQuestionsPrompt(exam: ExamDefinition, config: TestConfig, t
 Generate ${task.count} fresh, original, exam-accurate questions.
 Subject: ${task.subject}
 Chapter: ${task.chapter}
+
+STRICT RULES:
+- Every question must come ONLY from the chapter "${task.chapter}".
+- Do NOT include questions from any other chapter, even a related one.
+- Never substitute a different chapter because it is easier or higher-yield.
+
 Difficulty: ${difficulty}
 
 ${examStyle(exam)}
@@ -315,6 +321,11 @@ async function generateChunk(
 ): Promise<TestQuestion[]> {
   const prompt = buildQuestionsPrompt(exam, config, task);
   const { text, provider } = await generateWithChain(prompt, { json: true, userKeys, validate: hasArray("questions") });
+  if (isDev) {
+    console.log(
+      `[test-gen] subject="${task.subject}" chapter="${task.chapter}" count=${task.count} type=${task.type} provider=${provider}`
+    );
+  }
   const raw = extractJson(text) as { questions?: unknown[] };
   const list = Array.isArray(raw?.questions) ? raw.questions : [];
   const { marks, negative } = marksFor(exam, config, task.section);

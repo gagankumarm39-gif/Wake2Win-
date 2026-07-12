@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { generateWithChain } from "./generate";
 import { getLocalQuestions } from "./local-question-bank";
+import { isDev } from "./errors";
 import { shuffle } from "@/lib/utils";
 import type { GeneratedQuestion, QuestionRequest, QuestionSource, UserProviderKey } from "@/types";
 
@@ -13,8 +14,15 @@ const questionSchema = z.object({
 });
 const payloadSchema = z.object({ questions: z.array(questionSchema).min(1) });
 
-/** NEET/JEE-specific style guidance so alarm questions feel like the real exam. */
-function styleGuidance(exam: string): string {
+/**
+ * NEET/JEE-specific style guidance so alarm questions feel like the real exam.
+ * `scoped` is true when the student pinned a specific lesson/topic: the guidance
+ * must then NOT steer the model toward other (higher-yield) chapters.
+ */
+function styleGuidance(exam: string, scoped: boolean): string {
+  const scopeNote = scoped
+    ? "\nStay strictly INSIDE the requested lesson/topic — never drift to another (easier or higher-yield) chapter."
+    : "";
   if (exam === "NEET") {
     return `This is NEET. Follow NCERT (Class 11 & 12) strictly — every fact must be traceable to an NCERT line.
 Rotate across these NEET question STYLES (use a different style for each question):
@@ -23,12 +31,24 @@ Rotate across these NEET question STYLES (use a different style for each questio
 - Statement-based: "Which of the following statements is/are correct?" with 4 option combinations
 - Match the following: two columns to match, 4 options give the correct pairing
 - Previous-year (PYQ) style: phrased the way NEET actually asks it
-Prefer high-yield chapters and NEET's favourite traps (units, exceptions, NCERT-only exceptions, similar-looking terms).`;
+Use NEET's favourite traps (units, exceptions, NCERT-only exceptions, similar-looking terms).${scopeNote}`;
   }
   if (exam === "JEE") {
-    return `This is JEE. Concept-application heavy, single-correct MCQs with plausible distractors that catch common algebra/sign/unit mistakes. Mix straightforward and multi-step reasoning.`;
+    return `This is JEE. Concept-application heavy, single-correct MCQs with plausible distractors that catch common algebra/sign/unit mistakes. Mix straightforward and multi-step reasoning.${scopeNote}`;
   }
-  return `Exam-accurate syllabus and phrasing for ${exam}. Mix factual and application questions.`;
+  return `Exam-accurate syllabus and phrasing for ${exam}. Mix factual and application questions.${scopeNote}`;
+}
+
+/** Strict lesson/topic scope block — only emitted when the student pinned one. */
+function lessonBlock(lesson: string): string {
+  return `Lesson / Chapter / Topic: ${lesson}
+
+STRICT RULES:
+- Every question must come ONLY from the lesson/topic "${lesson}".
+- Do NOT include questions from any other lesson or chapter, even a closely related one.
+- If the lesson is broad, still generate questions only from within that lesson.
+- Never substitute a different lesson because it is easier or higher-yield.
+- If you cannot form a question from this lesson, leave it out rather than drifting to another lesson.`;
 }
 
 function buildPrompt(req: QuestionRequest, seed: string): string {
@@ -39,12 +59,15 @@ function buildPrompt(req: QuestionRequest, seed: string): string {
       ? "Make them rank-deciding: multi-concept, subtle traps, tricky distractors."
       : "Exam-standard difficulty, the level a serious aspirant sees in a real paper.";
 
+  const lesson = req.chapter?.trim();
+
   return `You are an expert ${req.exam} question setter creating a fresh set for a wake-up challenge.
 Generate ${req.count} brand-new, original single-correct multiple-choice questions.
-Subject: ${req.subject}${req.chapter ? `\nChapter: ${req.chapter}` : ""}
+Exam: ${req.exam}
+Subject: ${req.subject}${lesson ? `\n${lessonBlock(lesson)}` : ""}
 Difficulty: ${req.difficulty} — ${difficultyNote}
 
-${styleGuidance(req.exam)}
+${styleGuidance(req.exam, !!lesson)}
 
 Hard rules:
 - Exactly 4 options per question, exactly one correct.
@@ -102,34 +125,126 @@ export interface QuestionResult {
   error?: string;
 }
 
+const lessonCheckSchema = z.object({ offTopic: z.array(z.number().int()) });
+
 /**
- * Provider chain: the student's own keys → app OpenRouter → Gemini → next
- * OpenRouter → local bank. NEVER throws — the local bank guarantees questions,
- * so the alarm always has something to show. A fresh seed per call plus the
- * NEET-style prompt means every ring gets genuinely new questions when AI is
- * reachable, and a large randomized bank when it isn't (Priority 3).
+ * Best-effort AI gate: verify each generated question genuinely belongs to the
+ * requested lesson/topic (not merely the same subject). Returns the indices
+ * that are OFF-topic. If the check itself can't run (provider down / bad JSON),
+ * returns [] so a flaky validator never blocks generation.
+ */
+async function findOffLessonQuestions(
+  req: QuestionRequest,
+  lesson: string,
+  questions: GeneratedQuestion[],
+  userKeys: UserProviderKey[]
+): Promise<number[]> {
+  const listing = questions.map((q, i) => `${i}. ${q.question}`).join("\n");
+  const prompt = `You are checking whether exam questions belong to a specific lesson/topic.
+Exam: ${req.exam}
+Subject: ${req.subject}
+Lesson / Chapter / Topic: ${lesson}
+
+List ONLY the questions that CLEARLY belong to a DIFFERENT, identifiable chapter than "${lesson}". Be conservative: a question that reasonably fits within "${lesson}" — including its sub-topics — is on-topic and must NOT be listed. When in doubt, treat it as on-topic and leave it out.
+
+${listing}
+
+Respond with ONLY valid JSON listing the indices of the clearly off-topic questions (empty array if all belong to the lesson):
+{"offTopic":[0,2]}`;
+  try {
+    const { text } = await generateWithChain(prompt, { json: true, userKeys });
+    const parsed = lessonCheckSchema.parse(extractJson(text));
+    return [...new Set(parsed.offTopic.filter((i) => i >= 0 && i < questions.length))];
+  } catch {
+    return []; // never block generation on a failed validator
+  }
+}
+
+/** Dev-only trace of one generation attempt (Requirement 6). */
+function logAttempt(
+  req: QuestionRequest,
+  lesson: string,
+  count: number,
+  provider: QuestionSource,
+  validation: string,
+  attempt: number
+): void {
+  if (!isDev) return;
+  console.log(
+    `[questions] subject="${req.subject}" lesson="${lesson || "(subject-wide)"}" count=${count} ` +
+      `provider=${provider} validation="${validation}" attempt=${attempt}`
+  );
+}
+
+/**
+ * Provider chain: the student's own keys → app Ollama/OpenRouter/Gemini → local
+ * bank. NEVER throws — the local bank guarantees questions, so the alarm always
+ * has something to show.
+ *
+ * Lesson binding (Requirements 2–5): when the student pins a lesson/topic, the
+ * prompt is strictly scoped to it, and each AI batch is validated to belong to
+ * that lesson. Off-lesson questions are rejected and generation is retried (up
+ * to 3 attempts), accumulating only on-lesson questions across attempts. The
+ * subject-level local bank is used only when NO on-lesson AI question could be
+ * produced, so the alarm is never empty.
  */
 export async function generateQuestionsDetailed(
   req: QuestionRequest,
   userKeys: UserProviderKey[] = []
 ): Promise<QuestionResult> {
   const count = Math.min(Math.max(req.count, 1), 10);
-  const seed = crypto.randomUUID();
-  const prompt = buildPrompt({ ...req, count }, seed);
+  const lesson = req.chapter?.trim() ?? "";
+  const maxAttempts = lesson ? 3 : 1;
 
-  try {
-    const { text, provider } = await generateWithChain(prompt, { json: true, userKeys, validate: hasQuestions });
-    const parsed = payloadSchema.parse(extractJson(text));
-    const questions = parsed.questions.slice(0, count).map((q) => randomize(q, provider));
-    if (questions.length >= count) return { questions, usedFallback: false };
-    // Partial AI result — top up from the bank rather than discard the AI ones.
-    const filler = getLocalQuestions({ ...req, count: count - questions.length });
-    return { questions: [...questions, ...filler], usedFallback: false };
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    console.warn(`[questions] all providers failed, using local bank: ${error}`);
-    return { questions: getLocalQuestions({ ...req, count }), usedFallback: true, error };
+  const collected: GeneratedQuestion[] = [];
+  const seen = new Set<string>();
+  const push = (qs: GeneratedQuestion[]) => {
+    for (const q of qs) {
+      const fp = q.question.toLowerCase().replace(/\s+/g, " ").trim();
+      if (!seen.has(fp) && collected.length < count) {
+        seen.add(fp);
+        collected.push(q);
+      }
+    }
+  };
+
+  let lastError: string | undefined;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const prompt = buildPrompt({ ...req, count }, crypto.randomUUID());
+    try {
+      const { text, provider } = await generateWithChain(prompt, { json: true, userKeys, validate: hasQuestions });
+      const parsed = payloadSchema.parse(extractJson(text));
+      const questions = parsed.questions.slice(0, count).map((q) => randomize(q, provider));
+
+      if (!lesson) {
+        logAttempt(req, lesson, count, provider, "skipped (subject-wide)", attempt);
+        if (questions.length >= count) return { questions, usedFallback: false };
+        const filler = getLocalQuestions({ ...req, count: count - questions.length });
+        return { questions: [...questions, ...filler], usedFallback: false };
+      }
+
+      const off = await findOffLessonQuestions(req, lesson, questions, userKeys);
+      const onTopic = questions.filter((_, i) => !off.includes(i));
+      const validation =
+        off.length === 0 ? "all on-topic" : `${off.length}/${questions.length} off-topic rejected`;
+      logAttempt(req, lesson, count, provider, validation, attempt);
+
+      push(onTopic);
+      if (collected.length >= count) return { questions: collected.slice(0, count), usedFallback: false };
+      // Not enough on-lesson questions yet — try again with a fresh seed.
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      console.warn(`[questions] attempt ${attempt} failed: ${lastError}`);
+    }
   }
+
+  // Ran out of attempts. Return the on-lesson questions we gathered; only fall
+  // back to the (subject-level) bank when we have NONE, so the alarm isn't empty.
+  if (collected.length > 0) return { questions: collected, usedFallback: false };
+
+  if (isDev && lesson) console.warn(`[questions] no on-lesson questions for "${lesson}" — using local bank`);
+  return { questions: getLocalQuestions({ ...req, count }), usedFallback: true, error: lastError };
 }
 
 /** Back-compat: questions only (never throws). */
