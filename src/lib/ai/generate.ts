@@ -18,6 +18,7 @@
 import {
   generateWithAnthropic,
   generateWithGemini,
+  generateWithOllama,
   generateWithOpenAI,
   generateWithOpenRouterModel,
 } from "./providers";
@@ -48,7 +49,11 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Interleave OpenRouter models with Gemini: [OR0, Gemini, OR1, OR2, …]. */
+/**
+ * App-key candidates. Ollama (self-hosted) is highest priority when configured,
+ * then the existing interleave of OpenRouter models with Gemini:
+ *   [Ollama?, OR0, Gemini, OR1, OR2, …].
+ */
 function appCandidates(prompt: string, json: boolean): Candidate[] {
   const models = configuredOpenRouterModels();
   const orCandidate = (model: string): Candidate => ({
@@ -63,10 +68,13 @@ function appCandidates(prompt: string, json: boolean): Candidate[] {
     label: "app gemini",
     run: () => generateWithGemini(prompt, json),
   };
+  const ollama: Candidate[] = process.env.OLLAMA_URL
+    ? [{ provider: "ollama", ownKey: false, label: "app ollama", run: () => generateWithOllama(prompt, json) }]
+    : [];
 
-  if (models.length === 0) return [gemini];
-  // OpenRouter first (working model) → Gemini → the rest of OpenRouter.
-  return [orCandidate(models[0]), gemini, ...models.slice(1).map(orCandidate)];
+  if (models.length === 0) return [...ollama, gemini];
+  // Ollama → OpenRouter (working model) → Gemini → the rest of OpenRouter.
+  return [...ollama, orCandidate(models[0]), gemini, ...models.slice(1).map(orCandidate)];
 }
 
 function ownCandidates(prompt: string, json: boolean, userKeys: UserProviderKey[]): Candidate[] {

@@ -15,10 +15,82 @@ import { AI_PROVIDERS } from "./provider-config";
 import { AIError, kindFromStatus, pickBestError, toAIError } from "./errors";
 
 const TIMEOUT_MS = 45000;
+const OLLAMA_TIMEOUT_MS = 60000;
 
 export interface ProviderCallOptions {
   apiKey?: string;
   model?: string;
+}
+
+/**
+ * Ollama (self-hosted, highest-priority provider) via /api/generate.
+ * Reads OLLAMA_URL / OLLAMA_MODEL. 60s timeout, one retry on timeout. If the
+ * server is unreachable this throws a typed AIError so the chain moves on to
+ * Gemini without surfacing an error to the student.
+ */
+export async function generateWithOllama(
+  prompt: string,
+  json = true,
+  opts?: ProviderCallOptions
+): Promise<string> {
+  const base = process.env.OLLAMA_URL;
+  if (!base) {
+    throw new AIError("not_configured", "OLLAMA_URL not set", { provider: "ollama" });
+  }
+
+  const model = opts?.model?.trim() || process.env.OLLAMA_MODEL || "qwen2.5:7b";
+  const url = `${base.replace(/\/$/, "")}/api/generate`;
+
+  const call = (): Promise<Response> =>
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        prompt,
+        stream: false,
+        ...(json ? { format: "json" } : {}),
+        options: { temperature: 0.9 },
+      }),
+      signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
+    });
+
+  let res: Response;
+  try {
+    res = await call();
+  } catch (err) {
+    const aiErr = toAIError(err, { provider: "ollama", model });
+    // Retry once on timeout; any other failure falls through to Gemini.
+    if (aiErr.kind !== "timeout") throw aiErr;
+    try {
+      res = await call();
+    } catch (retryErr) {
+      throw toAIError(retryErr, { provider: "ollama", model });
+    }
+  }
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new AIError(kindFromStatus(res.status), `Ollama ${res.status}`, {
+      provider: "ollama",
+      model,
+      status: res.status,
+      detail,
+    });
+  }
+
+  const data = await res.json().catch(() => null);
+  const text = data?.response;
+
+  if (typeof text !== "string" || !text.trim()) {
+    throw new AIError("empty", "Ollama returned an empty response", {
+      provider: "ollama",
+      model,
+      detail: data,
+    });
+  }
+
+  return text;
 }
 
 export async function generateWithGemini(

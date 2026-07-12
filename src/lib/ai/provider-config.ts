@@ -24,6 +24,9 @@ export interface AIProviderMeta {
   serverManagedModel?: boolean;
 }
 
+// Drives the settings UI and BYOK validation. Ollama is a server-side
+// (self-hosted) provider, never a student key, so it is deliberately excluded
+// here but still present in AI_PROVIDERS below (the Record must be complete).
 export const AI_PROVIDER_ORDER: AIProvider[] = ["gemini", "openrouter", "openai", "anthropic"];
 
 export const AI_PROVIDERS: Record<AIProvider, AIProviderMeta> = {
@@ -66,6 +69,19 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderMeta> = {
     defaultModel: "claude-opus-4-8",
     models: ["claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"],
     badge: "Future-ready",
+  },
+  // Server-side self-hosted provider (highest priority). Read from OLLAMA_URL /
+  // OLLAMA_MODEL env vars, never a student key — kept out of AI_PROVIDER_ORDER
+  // so it never surfaces in the BYOK settings UI.
+  ollama: {
+    id: "ollama",
+    name: "Ollama",
+    tagline: "Self-hosted local models",
+    keyUrl: "https://ollama.com",
+    keyPlaceholder: "",
+    defaultModel: "qwen2.5:7b",
+    models: ["qwen2.5:7b"],
+    serverManagedModel: true,
   },
 };
 

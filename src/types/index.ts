@@ -1,6 +1,6 @@
 export type Exam = "NEET" | "JEE" | "UPSC" | "SSC" | "GATE" | "CAT" | "BOARDS";
 export type Difficulty = "easy" | "medium" | "hard";
-export type QuestionSource = "gemini" | "openrouter" | "openai" | "anthropic" | "local";
+export type QuestionSource = "gemini" | "openrouter" | "openai" | "anthropic" | "ollama" | "local";
 
 export interface QuestionRequest {
   exam: Exam;
@@ -39,7 +39,7 @@ export interface Alarm {
   is_active: boolean;
 }
 
-export type AIProvider = "gemini" | "openrouter" | "openai" | "anthropic";
+export type AIProvider = "gemini" | "openrouter" | "openai" | "anthropic" | "ollama";
 
 /** Decrypted student key, server-side only — never serialized to the client. */
 export interface UserProviderKey {

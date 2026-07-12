@@ -174,6 +174,73 @@ async function* geminiTokens(
   }
 }
 
+// ── Ollama streaming (/api/generate, NDJSON) ──────────────
+
+async function* ollamaTokens(
+  messages: StreamChatMessage[],
+  signal?: AbortSignal
+): AsyncGenerator<string, void, void> {
+  const base = process.env.OLLAMA_URL;
+  if (!base) throw new StreamError("unavailable", "OLLAMA_URL not set");
+  const model = process.env.OLLAMA_MODEL || "qwen2.5:7b";
+
+  const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+  const prompt =
+    messages
+      .filter((m) => m.role !== "system")
+      .map((m) => `${m.role === "assistant" ? "Assistant" : "Student"}: ${m.content}`)
+      .join("\n") + "\nAssistant:";
+
+  let res: Response;
+  try {
+    res = await fetch(`${base.replace(/\/$/, "")}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        prompt,
+        ...(system ? { system } : {}),
+        stream: true,
+        options: { temperature: 0.9 },
+      }),
+      signal: combinedSignal(signal, STREAM_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw classifyThrown(err);
+  }
+
+  if (!res.ok || !res.body) throw new StreamError(classifyStatus(res.status), `Ollama ${res.status}`);
+
+  // Ollama streams NDJSON: one JSON object per line, not SSE.
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      if (signal?.aborted) throw new StreamError("aborted", "Stream aborted");
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const data = JSON.parse(trimmed) as { response?: string; error?: string };
+          if (data.error) throw new StreamError("server_error", data.error);
+          if (data.response) yield data.response;
+        } catch (err) {
+          if (err instanceof StreamError) throw err;
+          // Skip malformed lines.
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 // ── OpenAI-compatible chat-completions streaming (OpenRouter, OpenAI) ──
 
 interface ChatCompletionsTarget {
@@ -368,6 +435,9 @@ function userKeyAttempts(
         const model = resolveModel(k.provider, k.model);
         return [{ model: `user:${model}`, open: () => anthropicTokens(model, messages, signal, k.apiKey) }];
       }
+      case "ollama":
+        // Ollama is a server-side provider, never a student key.
+        return [];
     }
   });
 }
@@ -386,10 +456,17 @@ export async function openChatStream(
   signal?: AbortSignal,
   userKeys: UserProviderKey[] = []
 ): Promise<StreamResult> {
-  // Interleave like the non-streaming chain: OpenRouter #1 → Gemini → rest of
-  // OpenRouter, so a single provider being down never stalls the stream.
+  // Interleave like the non-streaming chain, with self-hosted Ollama first:
+  // Ollama → OpenRouter #1 → Gemini → rest of OpenRouter, so a single provider
+  // being down never stalls the stream.
   const appModels = configuredOpenRouterModels();
   const appAttempts: StreamAttempt[] = [];
+  if (process.env.OLLAMA_URL) {
+    appAttempts.push({
+      model: `ollama:${process.env.OLLAMA_MODEL || "qwen2.5:7b"}`,
+      open: () => ollamaTokens(messages, signal),
+    });
+  }
   if (appModels.length > 0) {
     appAttempts.push({ model: appModels[0], open: () => openRouterTokens(appModels[0], messages, signal) });
   }

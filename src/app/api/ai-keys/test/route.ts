@@ -7,6 +7,7 @@ import { isAIProvider, resolveModel } from "@/lib/ai/provider-config";
 import {
   generateWithAnthropic,
   generateWithGemini,
+  generateWithOllama,
   generateWithOpenAI,
   generateWithOpenRouter,
 } from "@/lib/ai/providers";
@@ -40,6 +41,9 @@ async function runTest(provider: AIProvider, apiKey: string, model: string): Pro
       return generateWithOpenAI(TEST_PROMPT, false, { apiKey, model });
     case "anthropic":
       return generateWithAnthropic(TEST_PROMPT, false, { apiKey, model });
+    case "ollama":
+      // Server-side provider — never reached via BYOK (isAIProvider excludes it).
+      return generateWithOllama(TEST_PROMPT, false, { model });
   }
 }
 
