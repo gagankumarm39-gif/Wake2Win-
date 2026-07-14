@@ -75,6 +75,15 @@
             android:name=".alarm.AlarmReceiver"
             android:exported="false" />
 
+        <!-- Re-arms persisted alarms after the user grants Alarms & reminders. -->
+        <receiver
+            android:name=".alarm.ExactAlarmPermissionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Re-arms alarms after reboot. -->
         <receiver
             android:name=".alarm.BootReceiver"

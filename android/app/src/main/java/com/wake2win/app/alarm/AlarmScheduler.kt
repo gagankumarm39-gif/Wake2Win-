@@ -53,7 +53,9 @@ object AlarmScheduler {
     private fun pendingIntent(context: Context, alarm: AlarmData): PendingIntent {
         var flags = PendingIntent.FLAG_UPDATE_CURRENT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags = flags or PendingIntent.FLAG_IMMUTABLE
-        return PendingIntent.getBroadcast(context, requestCode(alarm.id), intentFor(context, alarm), flags)
+        val intent = intentFor(context, alarm)
+        Log.i(AlarmConstants.TAG, "Creating alarm PendingIntent id=${alarm.id} requestCode=${requestCode(alarm.id)} action=${intent.action} data=${intent.data}")
+        return PendingIntent.getBroadcast(context, requestCode(alarm.id), intent, flags)
     }
 
     /**
@@ -92,6 +94,7 @@ object AlarmScheduler {
 
     /** Persist + arm the alarm. Safe to call repeatedly (idempotent per id). */
     fun schedule(context: Context, alarm: AlarmData) {
+        Log.i(AlarmConstants.TAG, "Scheduling alarm id=${alarm.id} active=${alarm.active} time=${alarm.time}")
         AlarmStore.put(context, alarm)
         if (!alarm.active) {
             cancel(context, alarm.id)
@@ -106,16 +109,37 @@ object AlarmScheduler {
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val triggerAt = nextTriggerAt(alarm)
         val pi = pendingIntent(context, alarm)
+
+        val canScheduleExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()
+        if (!canScheduleExact) {
+            scheduleInexactAllowWhileIdle(am, triggerAt, pi)
+            Log.w(
+                AlarmConstants.TAG,
+                "Exact alarm permission denied; armed inexact allow-while-idle alarm ${alarm.id} at $triggerAt",
+            )
+            return
+        }
+
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
             } else {
                 am.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pi)
             }
-            Log.i(AlarmConstants.TAG, "Armed alarm ${alarm.id} at $triggerAt (repeating=${alarm.isRepeating})")
+            Log.i(
+                AlarmConstants.TAG,
+                "Armed exact alarm ${alarm.id} at $triggerAt (repeating=${alarm.isRepeating})",
+            )
         } catch (e: SecurityException) {
-            // Missing SCHEDULE_EXACT_ALARM grant on Android 12+. Fall back to inexact.
-            Log.w(AlarmConstants.TAG, "Exact alarm denied, using inexact: ${e.message}")
+            Log.e(AlarmConstants.TAG, "Exact alarm scheduling failed for ${alarm.id}: ${e.message}", e)
+            scheduleInexactAllowWhileIdle(am, triggerAt, pi)
+        }
+    }
+
+    private fun scheduleInexactAllowWhileIdle(am: AlarmManager, triggerAt: Long, pi: PendingIntent) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+        } else {
             am.set(AlarmManager.RTC_WAKEUP, triggerAt, pi)
         }
     }
@@ -148,7 +172,8 @@ object AlarmScheduler {
             AlarmStore.put(context, snoozeAlarm)
             Log.i(AlarmConstants.TAG, "Snoozed $sourceId for $minutes min")
         } catch (e: SecurityException) {
-            am.set(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+            Log.e(AlarmConstants.TAG, "Exact snooze scheduling failed for $sourceId: ${e.message}", e)
+            scheduleInexactAllowWhileIdle(am, triggerAt, pi)
         }
     }
 
