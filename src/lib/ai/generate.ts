@@ -2,9 +2,9 @@
  * Shared text-generation chain with "bring your own key" support and automatic
  * provider fallback (Priority 1).
  *
- * App-key resolution order is INTERLEAVED so no single provider being globally
- * down can stall generation:
- *   OpenRouter model #1  →  Gemini  →  OpenRouter model #2 → #3 → …
+ * App-key resolution order:
+ *   Ollama (self-hosted)  →  Cloudflare Workers AI  →  Gemini  →  OpenRouter
+ *   model #1 → #2 → …  →  (callers' local fallback)
  * A student's own keys (if any) are tried first, in the order they added them.
  *
  * Every candidate is retried ONCE on a rate-limit (429) or timeout before we
@@ -22,6 +22,7 @@ import {
   generateWithOpenAI,
   generateWithOpenRouterModel,
 } from "./providers";
+import { generateWithCloudflare, isCloudflareConfigured } from "./cloudflare-provider";
 import { configuredOpenRouterModels } from "./models";
 import { AIError, logProviderFailure, pickBestError, toAIError } from "./errors";
 import type { AIProvider, UserProviderKey } from "@/types";
@@ -51,8 +52,10 @@ function delay(ms: number): Promise<void> {
 
 /**
  * App-key candidates. Ollama (self-hosted) is highest priority when configured,
- * then the existing interleave of OpenRouter models with Gemini:
- *   [Ollama?, OR0, Gemini, OR1, OR2, …].
+ * then Cloudflare Workers AI, then the existing interleave of OpenRouter models
+ * with Gemini:
+ *   [Ollama?, Cloudflare?, Gemini, OR0, OR1, …]  — per the required order
+ *   Ollama → Cloudflare → Gemini → OpenRouter.
  */
 function appCandidates(prompt: string, json: boolean): Candidate[] {
   const models = configuredOpenRouterModels();
@@ -71,10 +74,11 @@ function appCandidates(prompt: string, json: boolean): Candidate[] {
   const ollama: Candidate[] = process.env.OLLAMA_URL
     ? [{ provider: "ollama", ownKey: false, label: "app ollama", run: () => generateWithOllama(prompt, json) }]
     : [];
+  const cloudflare: Candidate[] = isCloudflareConfigured()
+    ? [{ provider: "cloudflare", ownKey: false, label: "app cloudflare", run: () => generateWithCloudflare(prompt, json) }]
+    : [];
 
-  if (models.length === 0) return [...ollama, gemini];
-  // Ollama → OpenRouter (working model) → Gemini → the rest of OpenRouter.
-  return [...ollama, orCandidate(models[0]), gemini, ...models.slice(1).map(orCandidate)];
+  return [...ollama, ...cloudflare, gemini, ...models.map(orCandidate)];
 }
 
 function ownCandidates(prompt: string, json: boolean, userKeys: UserProviderKey[]): Candidate[] {

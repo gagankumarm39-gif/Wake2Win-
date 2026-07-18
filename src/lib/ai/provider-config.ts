@@ -83,6 +83,19 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderMeta> = {
     models: ["qwen2.5:7b"],
     serverManagedModel: true,
   },
+  // Server-side provider (second priority, after Ollama). Read from
+  // CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN env vars, never a student
+  // key — kept out of AI_PROVIDER_ORDER so it never surfaces in the BYOK UI.
+  cloudflare: {
+    id: "cloudflare",
+    name: "Cloudflare Workers AI",
+    tagline: "Edge-hosted models on Cloudflare",
+    keyUrl: "https://dash.cloudflare.com/",
+    keyPlaceholder: "",
+    defaultModel: "@cf/meta/llama-4-scout-17b-16e-instruct",
+    models: ["@cf/meta/llama-4-scout-17b-16e-instruct"],
+    serverManagedModel: true,
+  },
 };
 
 export function isAIProvider(value: string): value is AIProvider {

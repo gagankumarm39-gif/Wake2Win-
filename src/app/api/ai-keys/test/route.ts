@@ -11,6 +11,7 @@ import {
   generateWithOpenAI,
   generateWithOpenRouter,
 } from "@/lib/ai/providers";
+import { generateWithCloudflare } from "@/lib/ai/cloudflare-provider";
 import type { AIProvider } from "@/types";
 
 /**
@@ -44,6 +45,9 @@ async function runTest(provider: AIProvider, apiKey: string, model: string): Pro
     case "ollama":
       // Server-side provider — never reached via BYOK (isAIProvider excludes it).
       return generateWithOllama(TEST_PROMPT, false, { model });
+    case "cloudflare":
+      // Server-side provider — never reached via BYOK (isAIProvider excludes it).
+      return generateWithCloudflare(TEST_PROMPT, false, { model });
   }
 }
 

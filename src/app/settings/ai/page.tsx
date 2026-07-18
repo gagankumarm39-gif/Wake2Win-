@@ -53,8 +53,9 @@ export default function AIProvidersPage() {
     openrouter: { ...initialCard },
     openai: { ...initialCard },
     anthropic: { ...initialCard },
-    // Server-side provider, never rendered (the page maps AI_PROVIDER_ORDER).
+    // Server-side providers, never rendered (the page maps AI_PROVIDER_ORDER).
     ollama: { ...initialCard },
+    cloudflare: { ...initialCard },
   });
 
   useEffect(() => {

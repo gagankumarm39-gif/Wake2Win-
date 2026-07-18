@@ -2,7 +2,8 @@
  * Streaming AI providers — token-by-token generation.
  *
  * Chain: the student's own keys (Gemini → OpenRouter → OpenAI → Anthropic),
- * then the app's Gemini key, then each configured app OpenRouter model.
+ * then the app providers: Ollama → Cloudflare Workers AI → Gemini → each
+ * configured OpenRouter model.
  * Mirrors the non-streaming chain in generate.ts but yields chunks as they
  * arrive. Errors are classified so the API route can degrade gracefully
  * (429 / 5xx / timeout / network) and automatically retry the next model.
@@ -10,6 +11,7 @@
 
 import { AI_PROVIDERS, resolveModel } from "./provider-config";
 import { configuredOpenRouterModels } from "./models";
+import { cloudflareChatTarget, CLOUDFLARE_TEXT_MODEL } from "./cloudflare-provider";
 import type { UserProviderKey } from "@/types";
 
 const STREAM_TIMEOUT_MS = 60_000;
@@ -338,6 +340,22 @@ function openAITokens(
   );
 }
 
+// Cloudflare Workers AI exposes an OpenAI-compatible chat-completions
+// endpoint, so streaming reuses the shared SSE parser above.
+function cloudflareTokens(
+  messages: StreamChatMessage[],
+  signal?: AbortSignal
+): AsyncGenerator<string, void, void> {
+  const target = cloudflareChatTarget();
+  if (!target) throw new StreamError("unavailable", "CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN not set");
+  return chatCompletionsTokens(
+    { ...target, label: "Cloudflare", temperature: 0.9 },
+    process.env.CLOUDFLARE_MODEL || CLOUDFLARE_TEXT_MODEL,
+    messages,
+    signal
+  );
+}
+
 // ── Anthropic Messages API streaming ──────────────────────
 
 async function* anthropicTokens(
@@ -436,7 +454,8 @@ function userKeyAttempts(
         return [{ model: `user:${model}`, open: () => anthropicTokens(model, messages, signal, k.apiKey) }];
       }
       case "ollama":
-        // Ollama is a server-side provider, never a student key.
+      case "cloudflare":
+        // Server-side providers, never a student key.
         return [];
     }
   });
@@ -445,7 +464,8 @@ function userKeyAttempts(
 /**
  * Open a token stream, falling through the provider chain on failure:
  * each of the student's own keys (Gemini → OpenRouter → OpenAI → Anthropic),
- * then the app's Gemini key, then each configured app OpenRouter model.
+ * then Ollama, Cloudflare Workers AI, the app's Gemini key, and each
+ * configured app OpenRouter model.
  * A provider only counts as "started" once its first token arrives, so
  * hung/erroring providers are skipped transparently. Throws
  * StreamError("unavailable") when every provider fails; throws
@@ -456,9 +476,8 @@ export async function openChatStream(
   signal?: AbortSignal,
   userKeys: UserProviderKey[] = []
 ): Promise<StreamResult> {
-  // Interleave like the non-streaming chain, with self-hosted Ollama first:
-  // Ollama → OpenRouter #1 → Gemini → rest of OpenRouter, so a single provider
-  // being down never stalls the stream.
+  // Same order as the non-streaming chain: Ollama (self-hosted) → Cloudflare
+  // Workers AI → Gemini → each configured OpenRouter model.
   const appModels = configuredOpenRouterModels();
   const appAttempts: StreamAttempt[] = [];
   if (process.env.OLLAMA_URL) {
@@ -467,11 +486,14 @@ export async function openChatStream(
       open: () => ollamaTokens(messages, signal),
     });
   }
-  if (appModels.length > 0) {
-    appAttempts.push({ model: appModels[0], open: () => openRouterTokens(appModels[0], messages, signal) });
+  if (cloudflareChatTarget()) {
+    appAttempts.push({
+      model: `cloudflare:${process.env.CLOUDFLARE_MODEL || CLOUDFLARE_TEXT_MODEL}`,
+      open: () => cloudflareTokens(messages, signal),
+    });
   }
   appAttempts.push({ model: AI_PROVIDERS.gemini.defaultModel, open: () => geminiTokens(messages, signal) });
-  for (const m of appModels.slice(1)) {
+  for (const m of appModels) {
     appAttempts.push({ model: m, open: () => openRouterTokens(m, messages, signal) });
   }
 
