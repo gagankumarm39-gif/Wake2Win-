@@ -152,7 +152,7 @@ ${listing}
 Respond with ONLY valid JSON listing the indices of the clearly off-topic questions (empty array if all belong to the lesson):
 {"offTopic":[0,2]}`;
   try {
-    const { text } = await generateWithChain(prompt, { json: true, userKeys });
+    const { text } = await generateWithChain(prompt, { json: true, userKeys, ollamaTask: "alarm" });
     const parsed = lessonCheckSchema.parse(extractJson(text));
     return [...new Set(parsed.offTopic.filter((i) => i >= 0 && i < questions.length))];
   } catch {
@@ -213,7 +213,7 @@ export async function generateQuestionsDetailed(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const prompt = buildPrompt({ ...req, count }, crypto.randomUUID());
     try {
-      const { text, provider } = await generateWithChain(prompt, { json: true, userKeys, validate: hasQuestions });
+      const { text, provider } = await generateWithChain(prompt, { json: true, userKeys, validate: hasQuestions, ollamaTask: "alarm" });
       const parsed = payloadSchema.parse(extractJson(text));
       const questions = parsed.questions.slice(0, count).map((q) => randomize(q, provider));
 

@@ -13,6 +13,7 @@
 import { configuredOpenRouterModels } from "./models";
 import { AI_PROVIDERS } from "./provider-config";
 import { AIError, kindFromStatus, pickBestError, toAIError } from "./errors";
+import { getOllamaModel, type OllamaTask } from "./ollama-model-router";
 
 const TIMEOUT_MS = 45000;
 const OLLAMA_TIMEOUT_MS = 60000;
@@ -24,12 +25,14 @@ export interface ProviderCallOptions {
 
 /**
  * Ollama (self-hosted, highest-priority provider) via /api/generate.
- * Reads OLLAMA_URL / OLLAMA_MODEL. 60s timeout, one retry on timeout. If the
- * server is unreachable this throws a typed AIError so the chain moves on to
- * Gemini without surfacing an error to the student.
+ * Reads OLLAMA_URL; the model is routed per task (ollama-model-router.ts)
+ * unless overridden. 60s timeout, one retry on timeout. If the server is
+ * unreachable this throws a typed AIError so the chain moves on to the next
+ * provider without surfacing an error to the student.
  */
 export async function generateWithOllama(
   prompt: string,
+  task: OllamaTask = "chat",
   json = true,
   opts?: ProviderCallOptions
 ): Promise<string> {
@@ -38,7 +41,7 @@ export async function generateWithOllama(
     throw new AIError("not_configured", "OLLAMA_URL not set", { provider: "ollama" });
   }
 
-  const model = opts?.model?.trim() || process.env.OLLAMA_MODEL || "qwen2.5:7b";
+  const model = opts?.model?.trim() || getOllamaModel(task);
   const url = `${base.replace(/\/$/, "")}/api/generate`;
 
   const call = (): Promise<Response> =>

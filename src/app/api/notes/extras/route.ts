@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
   const prompt = buildExtrasPrompt(config, kind, note.content);
 
   try {
-    const { text } = await generateWithChain(prompt, { json: kind === "flashcards", userKeys });
+    const { text } = await generateWithChain(prompt, { json: kind === "flashcards", userKeys, ollamaTask: "notes" });
     const content = kind === "flashcards" ? parseFlashcards(text) : text.trim();
     const nextExtras = { ...extras, [kind]: content };
 

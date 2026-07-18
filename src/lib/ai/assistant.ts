@@ -36,7 +36,7 @@ export async function generateAssistantReply(
   const prompt = `${SYSTEM}\n\nStudent context:\n${context}\n\nConversation so far:\n${convo}\n\nAssistant:`;
 
   try {
-    const { text } = await generateWithChain(prompt, { json: false, userKeys });
+    const { text } = await generateWithChain(prompt, { json: false, userKeys, ollamaTask: "chat" });
     return text;
   } catch {
     // Every provider failed — fall back to a canned coaching reply.

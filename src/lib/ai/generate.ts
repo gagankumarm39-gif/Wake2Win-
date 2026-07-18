@@ -25,6 +25,7 @@ import {
 import { generateWithCloudflare, isCloudflareConfigured } from "./cloudflare-provider";
 import { configuredOpenRouterModels } from "./models";
 import { AIError, logProviderFailure, pickBestError, toAIError } from "./errors";
+import type { OllamaTask } from "./ollama-model-router";
 import type { AIProvider, UserProviderKey } from "@/types";
 
 export interface ChainResult {
@@ -57,7 +58,7 @@ function delay(ms: number): Promise<void> {
  *   [Ollama?, Cloudflare?, Gemini, OR0, OR1, …]  — per the required order
  *   Ollama → Cloudflare → Gemini → OpenRouter.
  */
-function appCandidates(prompt: string, json: boolean): Candidate[] {
+function appCandidates(prompt: string, json: boolean, ollamaTask: OllamaTask): Candidate[] {
   const models = configuredOpenRouterModels();
   const orCandidate = (model: string): Candidate => ({
     provider: "openrouter",
@@ -72,7 +73,7 @@ function appCandidates(prompt: string, json: boolean): Candidate[] {
     run: () => generateWithGemini(prompt, json),
   };
   const ollama: Candidate[] = process.env.OLLAMA_URL
-    ? [{ provider: "ollama", ownKey: false, label: "app ollama", run: () => generateWithOllama(prompt, json) }]
+    ? [{ provider: "ollama", ownKey: false, label: "app ollama", run: () => generateWithOllama(prompt, ollamaTask, json) }]
     : [];
   const cloudflare: Candidate[] = isCloudflareConfigured()
     ? [{ provider: "cloudflare", ownKey: false, label: "app cloudflare", run: () => generateWithCloudflare(prompt, json) }]
@@ -125,6 +126,7 @@ export async function generateWithChain(
     json = true,
     userKeys = [],
     validate,
+    ollamaTask = "chat",
   }: {
     json?: boolean;
     userKeys?: UserProviderKey[];
@@ -137,9 +139,11 @@ export async function generateWithChain(
      * `validate`; otherwise the chain treats it as a failure and moves on.
      */
     validate?: (text: string) => boolean;
+    /** Which per-task Ollama model to use (ollama-model-router.ts). */
+    ollamaTask?: OllamaTask;
   } = {}
 ): Promise<ChainResult> {
-  const candidates = [...ownCandidates(prompt, json, userKeys), ...appCandidates(prompt, json)];
+  const candidates = [...ownCandidates(prompt, json, userKeys), ...appCandidates(prompt, json, ollamaTask)];
   const errors: AIError[] = [];
 
   for (const candidate of candidates) {

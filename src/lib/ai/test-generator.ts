@@ -172,6 +172,7 @@ export async function buildBlueprint(
       json: true,
       userKeys,
       validate: hasArray("items"),
+      ollamaTask: "tests",
     });
     const parsed = blueprintSchema.parse(extractJson(text));
     // Trust the AI only if its plan matches the request; else fall back.
@@ -320,7 +321,7 @@ async function generateChunk(
   userKeys: UserProviderKey[]
 ): Promise<TestQuestion[]> {
   const prompt = buildQuestionsPrompt(exam, config, task);
-  const { text, provider } = await generateWithChain(prompt, { json: true, userKeys, validate: hasArray("questions") });
+  const { text, provider } = await generateWithChain(prompt, { json: true, userKeys, validate: hasArray("questions"), ollamaTask: "tests" });
   if (isDev) {
     console.log(
       `[test-gen] subject="${task.subject}" chapter="${task.chapter}" count=${task.count} type=${task.type} provider=${provider}`
@@ -472,7 +473,7 @@ async function verifyAnswers(
   let corrected = 0;
   await pool(
     batches.map((batch) => async () => {
-      const { text } = await generateWithChain(buildReviewPrompt(exam, batch), { json: true, userKeys });
+      const { text } = await generateWithChain(buildReviewPrompt(exam, batch), { json: true, userKeys, ollamaTask: "tests" });
       const parsed = verifySchema.parse(extractJson(text));
       for (const fix of parsed.corrections) {
         const q = batch[fix.index];

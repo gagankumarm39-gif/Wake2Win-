@@ -44,7 +44,7 @@ async function runTest(provider: AIProvider, apiKey: string, model: string): Pro
       return generateWithAnthropic(TEST_PROMPT, false, { apiKey, model });
     case "ollama":
       // Server-side provider — never reached via BYOK (isAIProvider excludes it).
-      return generateWithOllama(TEST_PROMPT, false, { model });
+      return generateWithOllama(TEST_PROMPT, "chat", false, { model });
     case "cloudflare":
       // Server-side provider — never reached via BYOK (isAIProvider excludes it).
       return generateWithCloudflare(TEST_PROMPT, false, { model });

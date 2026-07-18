@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
         if (!aborted && full.length === 0) {
           // Every streaming provider failed — one non-streaming attempt.
           try {
-            const res = await generateWithChain(`${system}\n\n${userPrompt}`, { json: false, userKeys });
+            const res = await generateWithChain(`${system}\n\n${userPrompt}`, { json: false, userKeys, ollamaTask: "notes" });
             full = res.text;
             model = res.provider;
             send({ type: "token", text: full });
