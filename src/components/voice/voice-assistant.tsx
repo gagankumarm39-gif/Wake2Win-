@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Bot, Keyboard, Mic, MicOff, Send, Volume2, VolumeX } from "lucide-react";
+import { getRecognizer, type SpeechRecognitionLike } from "@/lib/speech";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -24,34 +25,6 @@ interface VoiceTurn {
   id: string;
   role: "user" | "assistant";
   content: string;
-}
-
-/** Minimal typings for the (still-prefixed) Web Speech API. */
-interface SpeechRecognitionResultItem { transcript: string }
-interface SpeechRecognitionEventLike {
-  resultIndex: number;
-  results: ArrayLike<{ isFinal: boolean; 0: SpeechRecognitionResultItem }>;
-}
-interface SpeechRecognitionLike {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  onresult: ((e: SpeechRecognitionEventLike) => void) | null;
-  onerror: ((e: { error?: string }) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-}
-
-function getRecognizer(): SpeechRecognitionLike | null {
-  if (typeof window === "undefined") return null;
-  const w = window as unknown as {
-    SpeechRecognition?: new () => SpeechRecognitionLike;
-    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-  };
-  const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
-  return Ctor ? new Ctor() : null;
 }
 
 const BAR_COUNT = 24;

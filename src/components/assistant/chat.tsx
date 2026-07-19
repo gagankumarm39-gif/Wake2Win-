@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Bot, History, ImagePlus, Lightbulb, Plus, Send, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { Bot, Camera, History, ImagePlus, Lightbulb, Mic, Plus, Send, Square, ThumbsDown, ThumbsUp, Volume2, VolumeX, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { prepareImages, type PreparedImage } from "@/lib/images/client";
+import { getRecognizer, type SpeechRecognitionLike } from "@/lib/speech";
 import { fetchQuestions } from "@/lib/ai/client-questions";
 import { dailySubject, defaultSubject } from "@/lib/exam-data";
 import type { TopicStat } from "@/lib/weak-topics";
@@ -182,9 +183,23 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
   const [busy, setBusy] = useState(false);
   const [attachments, setAttachments] = useState<PreparedImage[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
+  const [listening, setListening] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
+  /** Auto-send the dictated text when the mic stops (persisted preference). */
+  const [autoSend, setAutoSend] = useState(false);
+  /** id of the message currently being read aloud, or null. */
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const recognizerRef = useRef<SpeechRecognitionLike | null>(null);
+  /** Input text present when the mic started — dictation appends to it. */
+  const dictationBaseRef = useRef("");
+  const autoSendRef = useRef(autoSend);
+  autoSendRef.current = autoSend;
+  /** Latest sendText — recognizer callbacks outlive the render they close over. */
+  const sendTextRef = useRef<(content: string) => Promise<void>>(async () => {});
 
   // /api/assistant caps image turns at 4 images (MAX_CHAT_IMAGES).
   const MAX_ATTACHMENTS = 4;
@@ -193,7 +208,107 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [items, busy]);
 
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      recognizerRef.current?.abort();
+      if (typeof window !== "undefined") window.speechSynthesis?.cancel();
+    },
+    []
+  );
+
+  useEffect(() => {
+    try {
+      setAutoSend(localStorage.getItem("w2w:voice-autosend") === "1");
+    } catch {}
+  }, []);
+
+  function toggleAutoSend() {
+    setAutoSend((prev) => {
+      try {
+        localStorage.setItem("w2w:voice-autosend", prev ? "0" : "1");
+      } catch {}
+      return !prev;
+    });
+  }
+
+  /** Toggle speech-to-text dictation into the input field. */
+  function toggleMic() {
+    if (listening) {
+      recognizerRef.current?.stop();
+      return;
+    }
+    const recognizer = getRecognizer();
+    if (!recognizer) {
+      setMicError("Speech recognition is not supported in this browser — type your doubt instead.");
+      return;
+    }
+    setMicError(null);
+    dictationBaseRef.current = input ? `${input.trimEnd()} ` : "";
+    let final = "";
+
+    recognizer.lang = "en-IN";
+    recognizer.continuous = true;
+    recognizer.interimResults = true;
+    recognizer.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const result = e.results[i];
+        if (result.isFinal) final += result[0].transcript;
+        else interim += result[0].transcript;
+      }
+      setInput(dictationBaseRef.current + final + interim);
+    };
+    recognizer.onerror = (e) => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        setMicError("Microphone permission was denied. Allow mic access in your browser settings.");
+      } else if (e.error === "no-speech") {
+        setMicError("Didn't catch that — tap the mic and speak clearly.");
+      } else if (e.error !== "aborted") {
+        setMicError("Speech recognition failed. Try again or type instead.");
+      }
+    };
+    recognizer.onend = () => {
+      setListening(false);
+      recognizerRef.current = null;
+      // Drop any lingering interim text; keep base + final results only.
+      const dictated = dictationBaseRef.current + final;
+      setInput(dictated);
+      if (autoSendRef.current && dictated.trim()) void sendTextRef.current(dictated);
+    };
+    recognizerRef.current = recognizer;
+    try {
+      recognizer.start();
+      setListening(true);
+    } catch {
+      recognizerRef.current = null;
+    }
+  }
+
+  /** Read one assistant reply aloud; tap again to stop. */
+  function toggleSpeak(item: Extract<ChatItem, { kind: "text" }>) {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    if (speakingId === item.id) {
+      setSpeakingId(null);
+      return;
+    }
+    // Strip markdown syntax so TTS doesn't read asterisks and pipes.
+    const plain = item.content
+      .replace(/```[\s\S]*?```/g, " ")
+      .replace(/[*_#`>|]/g, " ")
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!plain) return;
+    const utterance = new SpeechSynthesisUtterance(plain);
+    utterance.lang = "en-IN";
+    utterance.rate = 1.02;
+    utterance.onend = () => setSpeakingId((id) => (id === item.id ? null : id));
+    utterance.onerror = () => setSpeakingId((id) => (id === item.id ? null : id));
+    setSpeakingId(item.id);
+    window.speechSynthesis.speak(utterance);
+  }
 
   /** Token-by-token reply via /api/assistant/stream. Returns false when the
    *  endpoint is unreachable/errored so the legacy route can take over. */
@@ -291,6 +406,7 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
   async function sendText(content: string) {
     const attached = attachments;
     if ((!content.trim() && attached.length === 0) || busy) return;
+    if (listening) recognizerRef.current?.stop();
     const userItem: ChatItem = {
       id: crypto.randomUUID(),
       kind: "text",
@@ -319,6 +435,7 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
       setBusy(false);
     }
   }
+  sendTextRef.current = sendText;
 
   async function onPickImages(files: FileList | null) {
     if (!files?.length) return;
@@ -333,6 +450,7 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
       error ?? (files.length > room ? `Only ${MAX_ATTACHMENTS} images per message — extras were skipped.` : null)
     );
     if (fileRef.current) fileRef.current.value = "";
+    if (cameraRef.current) cameraRef.current.value = "";
   }
 
   function removeAttachment(index: number) {
@@ -414,6 +532,18 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-end gap-2 pb-2">
         <button
+          onClick={toggleAutoSend}
+          title="When on, dictated questions are sent automatically when you stop the mic"
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors",
+            autoSend
+              ? "border-brand-400 text-brand-500"
+              : "border-slate-300 hover:border-brand-400 hover:text-brand-500 dark:border-slate-700"
+          )}
+        >
+          <Mic className="h-3.5 w-3.5" /> Auto-send {autoSend ? "on" : "off"}
+        </button>
+        <button
           onClick={newChat}
           className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 px-3.5 py-1.5 text-xs font-semibold transition-colors hover:border-brand-400 hover:text-brand-500 dark:border-slate-700"
         >
@@ -462,22 +592,44 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
                   </div>
                 )}
                 {item.role === "assistant" ? <Markdown content={item.content} /> : item.content}
-                {item.role === "assistant" && item.dbId && (
+                {item.role === "assistant" && item.id !== "hello" && (
                   <div className="mt-2 flex items-center gap-1 text-slate-400">
                     <button
-                      onClick={() => rate(item, true)}
-                      aria-label="Good answer"
-                      className={cn("rounded-md p-1 hover:text-emerald-500", item.liked === true && "text-emerald-500")}
+                      onClick={() => toggleSpeak(item)}
+                      aria-label={speakingId === item.id ? "Stop reading aloud" : "Listen"}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-md p-1 text-[11px] font-semibold hover:text-brand-500",
+                        speakingId === item.id && "text-brand-500"
+                      )}
                     >
-                      <ThumbsUp className="h-3.5 w-3.5" />
+                      {speakingId === item.id ? (
+                        <>
+                          <VolumeX className="h-3.5 w-3.5" /> Stop
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 className="h-3.5 w-3.5" /> Listen
+                        </>
+                      )}
                     </button>
-                    <button
-                      onClick={() => rate(item, false)}
-                      aria-label="Bad answer"
-                      className={cn("rounded-md p-1 hover:text-red-500", item.liked === false && "text-red-500")}
-                    >
-                      <ThumbsDown className="h-3.5 w-3.5" />
-                    </button>
+                    {item.dbId && (
+                      <>
+                        <button
+                          onClick={() => rate(item, true)}
+                          aria-label="Good answer"
+                          className={cn("rounded-md p-1 hover:text-emerald-500", item.liked === true && "text-emerald-500")}
+                        >
+                          <ThumbsUp className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => rate(item, false)}
+                          aria-label="Bad answer"
+                          className={cn("rounded-md p-1 hover:text-red-500", item.liked === false && "text-red-500")}
+                        >
+                          <ThumbsDown className="h-3.5 w-3.5" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -526,6 +678,9 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
       {attachError && (
         <p className="pb-2 text-xs font-medium text-amber-600 dark:text-amber-400">{attachError}</p>
       )}
+      {micError && (
+        <p className="pb-2 text-xs font-medium text-amber-600 dark:text-amber-400">{micError}</p>
+      )}
 
       <form
         onSubmit={(e) => {
@@ -542,6 +697,23 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
           className="hidden"
           onChange={(e) => void onPickImages(e.target.files)}
         />
+        <input
+          ref={cameraRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => void onPickImages(e.target.files)}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => cameraRef.current?.click()}
+          disabled={busy || attachments.length >= MAX_ATTACHMENTS}
+          aria-label="Take photo"
+        >
+          <Camera className="h-4 w-4" />
+        </Button>
         <Button
           type="button"
           variant="outline"
@@ -552,11 +724,21 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
           <ImagePlus className="h-4 w-4" />
         </Button>
         <Input
-          placeholder="Ask anything — concepts, doubts, strategy…"
+          placeholder={listening ? "Listening — speak your doubt…" : "Ask anything — concepts, doubts, strategy…"}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           disabled={busy}
         />
+        <Button
+          type="button"
+          variant="outline"
+          onClick={toggleMic}
+          disabled={busy}
+          aria-label={listening ? "Stop dictation" : "Speak your question"}
+          className={cn(listening && "animate-pulse border-red-500 text-red-500 hover:text-red-500")}
+        >
+          <Mic className="h-4 w-4" />
+        </Button>
         {busy ? (
           <Button type="button" variant="outline" onClick={stopStreaming} aria-label="Stop generating">
             <Square className="h-4 w-4" />
