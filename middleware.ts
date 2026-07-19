@@ -21,6 +21,8 @@ const PROTECTED_PREFIXES = [
   "/settings",
   "/tests",
   "/notes",
+  "/scanner",
+  "/voice-assistant",
 ];
 
 export async function middleware(request: NextRequest) {

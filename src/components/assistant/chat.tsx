@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Bot, History, Lightbulb, Plus, Send, Square, ThumbsDown, ThumbsUp } from "lucide-react";
+import { Bot, History, ImagePlus, Lightbulb, Plus, Send, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { prepareImages, type PreparedImage } from "@/lib/images/client";
 import { fetchQuestions } from "@/lib/ai/client-questions";
 import { dailySubject, defaultSubject } from "@/lib/exam-data";
 import type { TopicStat } from "@/lib/weak-topics";
@@ -24,6 +25,8 @@ type ChatItem =
       dbId?: string;
       model?: string | null;
       liked?: boolean | null;
+      /** Preview object URLs of images attached to this (user) message. */
+      images?: string[];
     }
   | { id: string; kind: "quiz"; title: string; subject: string; difficulty: Difficulty; questions: GeneratedQuestion[] };
 
@@ -177,8 +180,14 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
   const [historyOpen, setHistoryOpen] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [attachments, setAttachments] = useState<PreparedImage[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // /api/assistant caps image turns at 4 images (MAX_CHAT_IMAGES).
+  const MAX_ATTACHMENTS = 4;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -255,8 +264,9 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
     return created || signal.aborted;
   }
 
-  /** Original non-streaming path — kept as the silent fallback. */
-  async function legacyReply(history: ChatItem[]) {
+  /** Original non-streaming path — the silent fallback, and the ONLY path for
+   *  image turns (/api/assistant/stream does not accept images). */
+  async function legacyReply(history: ChatItem[], images?: string[]) {
     let reply =
       "I'm having trouble reaching the AI right now, but your quizzes still work offline — try 'Quiz me'! 💪";
     try {
@@ -268,6 +278,7 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
             .filter((i): i is Extract<ChatItem, { kind: "text" }> => i.kind === "text")
             .slice(-12)
             .map((i) => ({ role: i.role, content: i.content })),
+          ...(images?.length ? { images } : {}),
         }),
       });
       if (res.ok) reply = ((await res.json()) as { reply: string }).reply;
@@ -278,21 +289,59 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
   }
 
   async function sendText(content: string) {
-    if (!content.trim() || busy) return;
-    const userItem: ChatItem = { id: crypto.randomUUID(), kind: "text", role: "user", content };
+    const attached = attachments;
+    if ((!content.trim() && attached.length === 0) || busy) return;
+    const userItem: ChatItem = {
+      id: crypto.randomUUID(),
+      kind: "text",
+      role: "user",
+      content: content.trim() || "What is in this image? Explain it for NEET.",
+      images: attached.length ? attached.map((a) => a.previewUrl) : undefined,
+    };
     const history = [...items, userItem];
     setItems(history);
     setInput("");
+    setAttachments([]);
+    setAttachError(null);
     setBusy(true);
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const streamed = await streamReply(content, controller.signal);
-      if (!streamed) await legacyReply(history);
+      if (attached.length) {
+        // Image turn: vision runs server-side on /api/assistant only.
+        await legacyReply(history, attached.map((a) => a.dataUrl));
+      } else {
+        const streamed = await streamReply(content, controller.signal);
+        if (!streamed) await legacyReply(history);
+      }
     } finally {
       abortRef.current = null;
       setBusy(false);
     }
+  }
+
+  async function onPickImages(files: FileList | null) {
+    if (!files?.length) return;
+    const room = MAX_ATTACHMENTS - attachments.length;
+    if (room <= 0) {
+      setAttachError(`You can attach up to ${MAX_ATTACHMENTS} images per message.`);
+      return;
+    }
+    const { images, error } = await prepareImages(Array.from(files).slice(0, room));
+    setAttachments((prev) => [...prev, ...images]);
+    setAttachError(
+      error ?? (files.length > room ? `Only ${MAX_ATTACHMENTS} images per message — extras were skipped.` : null)
+    );
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function removeAttachment(index: number) {
+    setAttachments((prev) => {
+      const removed = prev[index];
+      if (removed) URL.revokeObjectURL(removed.previewUrl);
+      return prev.filter((_, i) => i !== index);
+    });
+    setAttachError(null);
   }
 
   function stopStreaming() {
@@ -399,6 +448,19 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
                     : "glass rounded-bl-md"
                 )}
               >
+                {item.role === "user" && item.images && (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {item.images.map((src, i) => (
+                      // eslint-disable-next-line @next/next/no-img-element -- local object URL preview
+                      <img
+                        key={i}
+                        src={src}
+                        alt={`Attachment ${i + 1}`}
+                        className="max-h-40 rounded-xl object-contain"
+                      />
+                    ))}
+                  </div>
+                )}
                 {item.role === "assistant" ? <Markdown content={item.content} /> : item.content}
                 {item.role === "assistant" && item.dbId && (
                   <div className="mt-2 flex items-center gap-1 text-slate-400">
@@ -443,6 +505,28 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
         ))}
       </div>
 
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap gap-2 pb-2">
+          {attachments.map((a, i) => (
+            <div key={a.previewUrl} className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element -- local object URL preview */}
+              <img src={a.previewUrl} alt={a.name} className="h-16 w-16 rounded-xl object-cover" />
+              <button
+                type="button"
+                onClick={() => removeAttachment(i)}
+                aria-label={`Remove ${a.name}`}
+                className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/70 text-white hover:bg-slate-900"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {attachError && (
+        <p className="pb-2 text-xs font-medium text-amber-600 dark:text-amber-400">{attachError}</p>
+      )}
+
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -450,6 +534,23 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
         }}
         className="flex gap-2"
       >
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => void onPickImages(e.target.files)}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => fileRef.current?.click()}
+          disabled={busy || attachments.length >= MAX_ATTACHMENTS}
+          aria-label="Attach images"
+        >
+          <ImagePlus className="h-4 w-4" />
+        </Button>
         <Input
           placeholder="Ask anything — concepts, doubts, strategy…"
           value={input}
@@ -461,7 +562,7 @@ export function AssistantChat({ exam, topics }: { exam: Exam; topics: TopicStat[
             <Square className="h-4 w-4" />
           </Button>
         ) : (
-          <Button type="submit" disabled={!input.trim()} aria-label="Send">
+          <Button type="submit" disabled={!input.trim() && attachments.length === 0} aria-label="Send">
             <Send className="h-4 w-4" />
           </Button>
         )}

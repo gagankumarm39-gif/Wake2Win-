@@ -22,16 +22,15 @@
  */
 
 export const DEFAULT_OPENROUTER_MODELS: string[] = [
-  // Exactly three models, in priority order (verified against GET
-  // /api/v1/models on 2026-07-19). Previously-listed models were removed
-  // because they fail in production:
+  // Exactly two models, in priority order (verified against GET
+  // /api/v1/models). Previously-listed models were removed because they fail
+  // in production:
   //   meta-llama/llama-3.3-70b-instruct:free     — rate-limited
   //   qwen/qwen3-next-80b-a3b-instruct:free      — rate-limited
   //   nvidia/nemotron-3-super*                   — invalid model id
   //   poolside/laguna-m1*                        — invalid model id (catalog id is laguna-m.1)
   "nvidia/nemotron-3-ultra-550b-a55b:free",
   "poolside/laguna-xs-2.1",
-  "google/gemma-4-26b-a4b-it",
 ];
 
 /** A model id is plausibly valid only as "vendor/name" (optionally ":free"). */
