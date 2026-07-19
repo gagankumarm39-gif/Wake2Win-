@@ -4,9 +4,10 @@
  *
  * Free-tier OpenRouter models are individually flaky: any given model can
  * return "Provider returned error" / 429 / empty at any moment even when it is
- * perfectly valid. The reliability strategy is therefore NOT "pick the one
- * best model" but "try several known-valid models with retry + Gemini in the
- * middle" (see generate.ts / streaming.ts).
+ * perfectly valid. The reliability strategy is a strict provider chain
+ * (Ollama → Cloudflare → OpenRouter → Gemini, one attempt each; see
+ * generate.ts / streaming.ts) with these models tried in order inside the
+ * OpenRouter step.
  *
  * DEFAULT_OPENROUTER_MODELS is a curated list of model ids verified to exist on
  * OpenRouter (checked against GET /api/v1/models). Invalid / hallucinated ids
@@ -21,16 +22,16 @@
  */
 
 export const DEFAULT_OPENROUTER_MODELS: string[] = [
-  // Ordered fastest/most-reliable-first so the common case answers quickly and
-  // the heavy models are only reached as later fallbacks.
-  "google/gemma-4-26b-a4b-it:free",
-  "nvidia/nemotron-3-nano-30b-a3b:free",
-  "meta-llama/llama-3.3-70b-instruct:free",
-  "qwen/qwen3-next-80b-a3b-instruct:free",
-  "openai/gpt-oss-120b:free",
-  "openai/gpt-oss-20b:free",
-  "google/gemma-4-31b-it:free",
-  "nousresearch/hermes-3-llama-3.1-405b:free",
+  // Exactly three models, in priority order (verified against GET
+  // /api/v1/models on 2026-07-19). Previously-listed models were removed
+  // because they fail in production:
+  //   meta-llama/llama-3.3-70b-instruct:free     — rate-limited
+  //   qwen/qwen3-next-80b-a3b-instruct:free      — rate-limited
+  //   nvidia/nemotron-3-super*                   — invalid model id
+  //   poolside/laguna-m1*                        — invalid model id (catalog id is laguna-m.1)
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "poolside/laguna-xs-2.1",
+  "google/gemma-4-26b-a4b-it",
 ];
 
 /** A model id is plausibly valid only as "vendor/name" (optionally ":free"). */

@@ -2,16 +2,18 @@
  * Streaming AI providers — token-by-token generation.
  *
  * Chain: the student's own keys (Gemini → OpenRouter → OpenAI → Anthropic),
- * then the app providers: Ollama → Cloudflare Workers AI → Gemini → each
- * configured OpenRouter model.
+ * then the app providers: Ollama → Cloudflare Workers AI → each configured
+ * OpenRouter model → Gemini.
  * Mirrors the non-streaming chain in generate.ts but yields chunks as they
  * arrive. Errors are classified so the API route can degrade gracefully
- * (429 / 5xx / timeout / network) and automatically retry the next model.
+ * (429 / 5xx / timeout / network) and automatically fall through to the next
+ * provider — each is attempted exactly once.
  */
 
 import { AI_PROVIDERS, resolveModel } from "./provider-config";
 import { configuredOpenRouterModels } from "./models";
 import { cloudflareChatTarget, CLOUDFLARE_TEXT_MODEL } from "./cloudflare-provider";
+import { getOllamaModel } from "./ollama-model-router";
 import type { UserProviderKey } from "@/types";
 
 const STREAM_TIMEOUT_MS = 60_000;
@@ -184,7 +186,9 @@ async function* ollamaTokens(
 ): AsyncGenerator<string, void, void> {
   const base = process.env.OLLAMA_URL;
   if (!base) throw new StreamError("unavailable", "OLLAMA_URL not set");
-  const model = process.env.OLLAMA_MODEL || "qwen2.5:7b";
+  // Streaming is the student chat/doubt-solver path — an educational task, so
+  // the per-task router picks gemma3:4b (ollama-model-router.ts).
+  const model = getOllamaModel("chat");
 
   const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
   const prompt =
@@ -464,8 +468,8 @@ function userKeyAttempts(
 /**
  * Open a token stream, falling through the provider chain on failure:
  * each of the student's own keys (Gemini → OpenRouter → OpenAI → Anthropic),
- * then Ollama, Cloudflare Workers AI, the app's Gemini key, and each
- * configured app OpenRouter model.
+ * then Ollama, Cloudflare Workers AI, each configured app OpenRouter model,
+ * and finally the app's Gemini key. Each attempt runs exactly once.
  * A provider only counts as "started" once its first token arrives, so
  * hung/erroring providers are skipped transparently. Throws
  * StreamError("unavailable") when every provider fails; throws
@@ -477,12 +481,12 @@ export async function openChatStream(
   userKeys: UserProviderKey[] = []
 ): Promise<StreamResult> {
   // Same order as the non-streaming chain: Ollama (self-hosted) → Cloudflare
-  // Workers AI → Gemini → each configured OpenRouter model.
+  // Workers AI → each configured OpenRouter model → Gemini (last resort).
   const appModels = configuredOpenRouterModels();
   const appAttempts: StreamAttempt[] = [];
   if (process.env.OLLAMA_URL) {
     appAttempts.push({
-      model: `ollama:${process.env.OLLAMA_MODEL || "qwen2.5:7b"}`,
+      model: `ollama:${getOllamaModel("chat")}`,
       open: () => ollamaTokens(messages, signal),
     });
   }
@@ -492,10 +496,10 @@ export async function openChatStream(
       open: () => cloudflareTokens(messages, signal),
     });
   }
-  appAttempts.push({ model: AI_PROVIDERS.gemini.defaultModel, open: () => geminiTokens(messages, signal) });
   for (const m of appModels) {
     appAttempts.push({ model: m, open: () => openRouterTokens(m, messages, signal) });
   }
+  appAttempts.push({ model: AI_PROVIDERS.gemini.defaultModel, open: () => geminiTokens(messages, signal) });
 
   const attempts: StreamAttempt[] = [
     ...userKeyAttempts(messages, signal, userKeys),

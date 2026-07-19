@@ -79,8 +79,8 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderMeta> = {
     tagline: "Self-hosted local models",
     keyUrl: "https://ollama.com",
     keyPlaceholder: "",
-    defaultModel: "qwen2.5:7b",
-    models: ["qwen2.5:7b"],
+    defaultModel: "gemma3:4b",
+    models: ["gemma3:4b", "qwen2.5:7b", "kimi-k2.7-code:cloud"],
     serverManagedModel: true,
   },
   // Server-side provider (second priority, after Ollama). Read from

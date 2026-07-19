@@ -15,7 +15,11 @@ import { AI_PROVIDERS } from "./provider-config";
 import { AIError, kindFromStatus, pickBestError, toAIError } from "./errors";
 import { getOllamaModel, type OllamaTask } from "./ollama-model-router";
 
-const TIMEOUT_MS = 45000;
+// Per-provider timeouts: Ollama 60s (local models can be slow to load),
+// Cloudflare 45s (cloudflare-provider.ts), OpenRouter/Gemini 30s.
+const GEMINI_TIMEOUT_MS = 30000;
+const OPENROUTER_TIMEOUT_MS = 30000;
+const OTHER_TIMEOUT_MS = 45000;
 const OLLAMA_TIMEOUT_MS = 60000;
 
 export interface ProviderCallOptions {
@@ -26,9 +30,9 @@ export interface ProviderCallOptions {
 /**
  * Ollama (self-hosted, highest-priority provider) via /api/generate.
  * Reads OLLAMA_URL; the model is routed per task (ollama-model-router.ts)
- * unless overridden. 60s timeout, one retry on timeout. If the server is
- * unreachable this throws a typed AIError so the chain moves on to the next
- * provider without surfacing an error to the student.
+ * unless overridden. 60s timeout, single attempt — any failure throws a typed
+ * AIError so the chain moves on to the next provider without surfacing an
+ * error to the student.
  */
 export async function generateWithOllama(
   prompt: string,
@@ -44,8 +48,9 @@ export async function generateWithOllama(
   const model = opts?.model?.trim() || getOllamaModel(task);
   const url = `${base.replace(/\/$/, "")}/api/generate`;
 
-  const call = (): Promise<Response> =>
-    fetch(url, {
+  let res: Response;
+  try {
+    res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -57,19 +62,8 @@ export async function generateWithOllama(
       }),
       signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
     });
-
-  let res: Response;
-  try {
-    res = await call();
   } catch (err) {
-    const aiErr = toAIError(err, { provider: "ollama", model });
-    // Retry once on timeout; any other failure falls through to Gemini.
-    if (aiErr.kind !== "timeout") throw aiErr;
-    try {
-      res = await call();
-    } catch (retryErr) {
-      throw toAIError(retryErr, { provider: "ollama", model });
-    }
+    throw toAIError(err, { provider: "ollama", model });
   }
 
   if (!res.ok) {
@@ -133,7 +127,7 @@ export async function generateWithGemini(
               : {}),
           },
         }),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
       }
     );
   } catch (err) {
@@ -197,7 +191,7 @@ export async function generateWithOpenRouterModel(
         temperature: 0.9,
         ...(json ? { response_format: { type: "json_object" } } : {}),
       }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
     });
   } catch (err) {
     throw toAIError(err, { provider: "openrouter", model });
@@ -288,7 +282,7 @@ export async function generateWithOpenAI(
         messages: [{ role: "user", content: prompt }],
         ...(json ? { response_format: { type: "json_object" } } : {}),
       }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(OTHER_TIMEOUT_MS),
     });
   } catch (err) {
     throw toAIError(err, { provider: "openai", model });
@@ -339,7 +333,7 @@ export async function generateWithAnthropic(
           : {}),
         messages: [{ role: "user", content: prompt }],
       }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(OTHER_TIMEOUT_MS),
     });
   } catch (err) {
     throw toAIError(err, { provider: "anthropic", model });
