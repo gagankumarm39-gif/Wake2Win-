@@ -109,3 +109,14 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
 </manifest>
+<!-- AI Features -->
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+<!-- Android 13+ -->
+<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+<!-- Android 12 and below -->
+<uses-permission
+    android:name="android.permission.READ_EXTERNAL_STORAGE"
+    android:maxSdkVersion="32" />
